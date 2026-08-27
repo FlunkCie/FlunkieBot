@@ -1,0 +1,12 @@
+services:
+  flunkiebot:
+    build: .
+    container_name: flunkiebot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./auth_info:/app/auth_info
+      - ./system-prompt.txt:/app/system-prompt.txt:ro
+    tty: true
+    stdin_open: true
