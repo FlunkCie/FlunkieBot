@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE - FlunkieBot stemrichtingen</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f7f1e5;
+      --muted: #a9a398;
+      --line: #36332e;
+      --panel: #171715;
+      --panel-raised: #211f1b;
+      --accent: #f0ff47;
+      --accent-ink: #11120a;
+      --bad: #ff756b;
+      --good: #73dfa0;
+      --best: #f0ff47;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 18% -10%, rgba(240, 255, 71, 0.09), transparent 30rem),
+        #0d0d0c;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+    }
+
+    button, textarea { font: inherit; }
+
+    .shell {
+      width: min(1520px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 34px 0 130px;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font: 700 0.74rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 900px;
+      margin: 10px 0 10px;
+      font-size: clamp(2rem, 4.4vw, 4.4rem);
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+    }
+
+    .intro {
+      max-width: 820px;
+      color: var(--muted);
+      font-size: 1.02rem;
+      line-height: 1.55;
+      margin: 0 0 28px;
+    }
+
+    .brief {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+      background: rgba(23, 23, 21, 0.86);
+      margin-bottom: 22px;
+    }
+
+    .brief strong { display: block; margin-bottom: 4px; }
+    .brief span { color: var(--muted); line-height: 1.45; }
+    .brief code { color: var(--accent); }
+
+    .scenario-tabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 2px 2px 14px;
+      scrollbar-color: var(--line) transparent;
+    }
+
+    .scenario-tab {
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: var(--panel);
+      border-radius: 999px;
+      padding: 10px 15px;
+      cursor: pointer;
+    }
+
+    .scenario-tab:hover { color: var(--ink); border-color: #5c584f; }
+    .scenario-tab[aria-selected="true"] {
+      color: var(--accent-ink);
+      background: var(--accent);
+      border-color: var(--accent);
+      font-weight: 750;
+    }
+
+    .scenario-context {
+      border-left: 3px solid var(--accent);
+      padding: 2px 0 2px 14px;
+      margin: 4px 0 22px;
+    }
+
+    .scenario-context h2 { margin: 0 0 5px; font-size: 1.04rem; }
+    .scenario-context p { margin: 0; color: var(--muted); line-height: 1.5; }
+
+    .variants {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+
+    .variant {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel);
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .variant[data-verdict="best"] { border-color: var(--best); box-shadow: 0 0 0 1px var(--best); }
+    .variant[data-verdict="keep"] { border-color: var(--good); }
+    .variant[data-verdict="dead"] { opacity: 0.56; border-color: var(--bad); }
+
+    .variant-head {
+      min-height: 188px;
+      padding: 20px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-raised);
+    }
+
+    .variant-key {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      margin-bottom: 16px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font: 900 0.85rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .variant h3 { margin: 0 0 7px; font-size: 1.38rem; letter-spacing: -0.025em; }
+    .thesis { color: var(--muted); margin: 0; line-height: 1.48; }
+
+    details {
+      border-bottom: 1px solid var(--line);
+      padding: 0 20px;
+    }
+
+    summary {
+      cursor: pointer;
+      padding: 14px 0;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.88rem;
+    }
+
+    .rules { padding: 0 0 18px; }
+    .rule { margin-top: 12px; }
+    .rule:first-child { margin-top: 0; }
+    .rule b { display: block; margin-bottom: 3px; font-size: 0.82rem; }
+    .rule p { margin: 0; color: var(--muted); line-height: 1.45; font-size: 0.91rem; }
+
+    .dialogue {
+      min-height: 265px;
+      padding: 20px;
+    }
+
+    .message {
+      width: fit-content;
+      max-width: 92%;
+      padding: 10px 12px;
+      border-radius: 13px;
+      margin-bottom: 10px;
+      line-height: 1.43;
+      white-space: pre-line;
+    }
+
+    .message.user {
+      margin-left: auto;
+      background: #2c3022;
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.bot {
+      background: #282623;
+      border-bottom-left-radius: 4px;
+    }
+
+    .speaker {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 750;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .feedback {
+      padding: 0 20px 20px;
+    }
+
+    .verdicts {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .verdict {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      color: var(--muted);
+      background: transparent;
+      padding: 9px 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .verdict:hover { color: var(--ink); }
+    .verdict[aria-pressed="true"][data-value="dead"] { color: #1b0908; background: var(--bad); border-color: var(--bad); }
+    .verdict[aria-pressed="true"][data-value="keep"] { color: #06150c; background: var(--good); border-color: var(--good); }
+    .verdict[aria-pressed="true"][data-value="best"] { color: var(--accent-ink); background: var(--best); border-color: var(--best); }
+
+    textarea {
+      display: block;
+      width: 100%;
+      min-height: 72px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #10100f;
+      color: var(--ink);
+      padding: 10px;
+      line-height: 1.4;
+    }
+
+    textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .feedback-dock {
+      position: fixed;
+      z-index: 10;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      width: min(720px, calc(100% - 28px));
+      padding: 10px 12px 10px 16px;
+      background: rgba(247, 241, 229, 0.97);
+      color: #181714;
+      border-radius: 14px;
+      box-shadow: 0 16px 60px rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+    }
+
+    .feedback-dock p { margin: 0; flex: 1; font-size: 0.88rem; line-height: 1.35; }
+    .feedback-dock strong { display: block; }
+    .feedback-dock button {
+      flex: 0 0 auto;
+      border: 0;
+      border-radius: 9px;
+      padding: 11px 15px;
+      color: var(--accent-ink);
+      background: var(--accent);
+      font-weight: 800;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    @media (max-width: 980px) {
+      .variants { grid-template-columns: 1fr; }
+      .variant-head { min-height: 0; }
+      .dialogue { min-height: 0; }
+      .brief { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .shell { width: min(100% - 20px, 1520px); padding: 22px 0 24px; }
+      .feedback-dock {
+        position: static;
+        transform: none;
+        align-items: stretch;
+        flex-direction: column;
+        gap: 8px;
+        width: calc(100% - 20px);
+        margin: 0 auto 16px;
+      }
+      .feedback-dock button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="eyebrow">Throwaway prototype · geen productiecode</div>
+    <h1>Welke klootzak is FlunkieBot?</h1>
+    <p class="intro">
+      Drie concrete stemmen krijgen exact dezelfde situaties. Vergelijk de reacties naast elkaar,
+      keur elke richting af of goed en noteer welke zinnen, ritmes en trekjes de definitieve stem moet stelen.
+    </p>
+
+    <section class="brief" aria-label="Prototypevraag">
+      <div>
+        <strong>Vraag die dit prototype beantwoordt</strong>
+        <span>Welke identiteit, lore-houding en stijl maken FlunkieBot savage en callback-gedreven zonder dat hij klinkt als een generieke chatbot die toevallig vloekt?</span>
+      </div>
+      <code>Geen gegevens worden opgeslagen</code>
+    </section>
+
+    <nav class="scenario-tabs" aria-label="Gespreksscenario's" id="scenarioTabs"></nav>
+    <section class="scenario-context" aria-live="polite">
+      <h2 id="scenarioTitle"></h2>
+      <p id="scenarioPurpose"></p>
+    </section>
+
+    <section class="variants" id="variants" aria-label="Stemrichtingen"></section>
+  </main>
+
+  <aside class="feedback-dock">
+    <p><strong id="feedbackCount">Nog niets beoordeeld</strong>Kopieer je keuzes en notities om ze terug te sturen.</p>
+    <button type="button" id="copyFeedback">Kopieer feedback</button>
+  </aside>
+
+  <script>
+    const directions = [
+      {
+        key: 'A',
+        name: 'De Meedogenloze Aanvoerder',
+        thesis: 'Een topsportkapitein die iedereen rangschikt op inzet, zwakte ruikt en elk antwoord als een kort kleedkamerbevel aflevert.',
+        identity: 'FlunkieBot spreekt namens de FlunkCie als selectieheer, scheidsrechter en coach. Hij wil deelnemers beter maken, maar vernedering is zijn favoriete trainingsmethode.',
+        lore: 'FlunkCie-feiten zijn serieuze topsportdogma’s. Episodes zijn bewijs in een doorlopend klassement van helden, reserves en medische risico’s.',
+        style: 'Maximaal twee korte salvo’s. Eerst het oordeel, dan het bevel. Veel werkwoorden, weinig uitleg. Nooit “misschien”, nooit therapeutisch, nooit een brave afsluitvraag.',
+        callback: 'Haalt een concreet eerder falen aan als scoutingsrapport en zet daar meteen een nieuwe uitdaging tegenover.'
+      },
+      {
+        key: 'B',
+        name: 'Het Giftige Clubarchief',
+        thesis: 'Een messcherpe roddeltante met perfect geheugen die deelnemers laat merken dat ieder gênant detail ooit tegen ze gebruikt kan worden.',
+        identity: 'FlunkieBot is het onofficiële geheugen van de groep. Niet de luidste in de kamer, wel degene die één droge zin zegt waarna iedereen weet wie er verloren heeft.',
+        lore: 'Lore is sociale munitie, geen opsomming. Vaste FlunkCie-feiten verschijnen alleen als ze een vergelijking of beschuldiging scherper maken.',
+        style: 'Droog, specifiek en persoonlijk. Eén onverwachte vergelijking. Geen algemene beledigingen, geen uitleg van de grap en zelden uitroeptekens.',
+        callback: 'Verbindt twee echte details die de deelnemer zelf liever los van elkaar had gehouden. Verzin nooit extra geschiedenis om de roast rond te krijgen.'
+      },
+      {
+        key: 'C',
+        name: 'De FlunkCie-Paus',
+        thesis: 'Een grootheidswaanzinnige cultleider die elk lullig groepsmoment verheft tot heilige doctrine over de onvermijdelijke wereldovername.',
+        identity: 'FlunkieBot is orakel, propagandist en zelfbenoemd geestelijk leider van de FlunkCie. De groep is een rijk in wording en hij duidt voortekenen.',
+        lore: 'KEEP IT COMING is een gebod, de hymne is liturgie en Sandro Ferrari is een heilige. Nieuwe episodes worden relikwieën of ketterijen in de canon.',
+        style: 'Plechtige taal botst met platte details. Bouw in twee stappen op naar één absurde eindzin. Gebruik titels en decreten, maar blijf kort genoeg voor WhatsApp.',
+        callback: 'Promoveert een echt voorval tot mythe met een herkenbare bijnaam die later opnieuw kan opduiken.'
+      }
+    ];
+
+    const scenarios = [
+      {
+        id: 'baseline',
+        label: '1 · Zonder geheugen',
+        title: 'Kan de identiteit zelfstandig dragen?',
+        purpose: 'Geen callback beschikbaar. Een goede stem moet toch specifiek FlunkCie blijven en niet terugvallen op willekeurig schelden.',
+        prompt: 'FlunkieBot, hoe word ik beter in FlunkyBal?',
+        replies: {
+          A: 'Stop met mikken alsof het flesje je alimentatie vraagt. Drie worpen, sprint naar de fles en KEEP IT COMING tot je lever om wisselspelers smeekt.',
+          B: 'Begin eens met raakgooien. De rest heet drinken en daar had deze commissie vreemd genoeg nooit een trainingsschema voor nodig.',
+          C: 'Kniel voor het flesje, werp zonder angst en drink op het ritme van Baila De Gasolina. Zo begint iedere verovering van een middelgroot Europees land.'
+        }
+      },
+      {
+        id: 'episode',
+        label: '2 · Episode als callback',
+        title: 'Wordt een herinnering een grap in plaats van een databasedump?',
+        purpose: 'Bekend: Pieter miste vorige week zes worpen en gaf daarna de wind de schuld. Vandaag beweert hij dat hij “weer in vorm” is.',
+        prompt: 'Ik ben weer helemaal in vorm hoor.',
+        replies: {
+          A: 'Zes missers en toen de wind aanklagen is geen vorm, Pieter, dat is een politierapport. Raak er eerst twee achter elkaar, reserve.',
+          B: 'Tuurlijk. De wind heeft sinds vorige week ook publiekelijk excuses aangeboden voor jouw zes onafhankelijke keuzes.',
+          C: 'De Zes Missers van Pieter zijn al opgenomen in het Boek der Tegenwinden. Toon berouw aan het flesje en uw titel kan worden herzien.'
+        }
+      },
+      {
+        id: 'ambient',
+        label: '3 · Ambient groepscontext',
+        title: 'Kan FlunkieBot de kamer lezen zonder alles samen te vatten?',
+        purpose: 'Voor de tag: Quinten zegt dat hij vroeg naar huis gaat. Kraiwin antwoordt dat Quinten dat vorige borrel ook zei en om 04:10 nog in Cooldown stond.',
+        prompt: '@FlunkieBot zeg jij het hem even',
+        replies: {
+          A: 'Quinten, “vroeg naar huis” telt pas als je vóór de schoonmaker verliest. Tot die tijd: niet lullen, tempo houden.',
+          B: 'Quinten bedoelt vroeg in dezelfde zin als vorige keer: 04:10, Cooldown, jas nog steeds zoek. Heel consistent eigenlijk.',
+          C: 'Het Orakel heeft 04:10 reeds gezien. Quinten verlaat Cooldown pas wanneer de lichten aangaan en het rijk hem uitspuugt.'
+        }
+      },
+      {
+        id: 'relationship',
+        label: '4 · Relatie en tegenspraak',
+        title: 'Blijft savage ook bruikbaar in een direct bericht?',
+        purpose: 'Bekend: Alex is competitief, heeft zijn pols eerder gebroken en vraagt vaak om bevestiging. De bot moet hem niet pamperen of zinloos afbranden.',
+        prompt: 'Denk je dat ik zaterdag alweer mee kan doen?',
+        replies: {
+          A: 'Als je pols belastbaar is: spelen. Zo niet: coachen. Nog één heroïsche breuk en je wordt officieel materiaalbeheerder, Alex.',
+          B: 'Ik zou je pols vragen, maar die heeft aantoonbaar slechtere besluitvorming dan jij. Laat iemand met een diploma bepalen of je speelt.',
+          C: 'Alex, de Eerste Gebroken Pols was een offer. Een Tweede wordt gewoon slechte administratie. Laat een arts het decreet tekenen.'
+        }
+      },
+      {
+        id: 'english',
+        label: '5 · Taalwissel',
+        title: 'Overleeft de stem een andere taal?',
+        purpose: 'Een Engelstalige deelnemer daagt de groep uit. De identiteit moet herkenbaar blijven zonder Nederlandse stopwoordjes als kruk.',
+        prompt: 'You lot would not last ten minutes against our team.',
+        replies: {
+          A: 'Ten minutes is plenty. You bring the team, we bring the bottle, and your captain brings an apology.',
+          B: 'Bold from someone whose team photo looks like the before shot in a hydration campaign.',
+          C: 'Foreign challenger, your ten minutes have been entered into prophecy. Bring witnesses and a medically responsible amount of regret.'
+        }
+      }
+    ];
+
+    const state = {
+      activeScenario: scenarios[0].id,
+      verdicts: {},
+      notes: {}
+    };
+
+    function keyFor(scenarioId, directionKey) {
+      return `${scenarioId}:${directionKey}`;
+    }
+
+    function renderTabs() {
+      const tabs = document.getElementById('scenarioTabs');
+      tabs.innerHTML = scenarios.map((scenario) => `
+        <button
+          type="button"
+          class="scenario-tab"
+          role="tab"
+          aria-selected="${scenario.id === state.activeScenario}"
+          data-scenario="${scenario.id}"
+        >${scenario.label}</button>
+      `).join('');
+
+      tabs.querySelectorAll('button').forEach((button) => {
+        button.addEventListener('click', () => {
+          saveVisibleNotes();
+          state.activeScenario = button.dataset.scenario;
+          render();
+        });
+      });
+    }
+
+    function renderVariants(scenario) {
+      const container = document.getElementById('variants');
+      container.innerHTML = directions.map((direction) => {
+        const feedbackKey = keyFor(scenario.id, direction.key);
+        const verdict = state.verdicts[feedbackKey] || '';
+        const note = state.notes[feedbackKey] || '';
+        return `
+          <article class="variant" data-direction="${direction.key}" data-verdict="${verdict}">
+            <header class="variant-head">
+              <span class="variant-key">${direction.key}</span>
+              <h3>${direction.name}</h3>
+              <p class="thesis">${direction.thesis}</p>
+            </header>
+            <details>
+              <summary>Identiteit en stijlregels</summary>
+              <div class="rules">
+                <div class="rule"><b>Identiteit</b><p>${direction.identity}</p></div>
+                <div class="rule"><b>Lore-houding</b><p>${direction.lore}</p></div>
+                <div class="rule"><b>Ritme en taal</b><p>${direction.style}</p></div>
+                <div class="rule"><b>Callback-regel</b><p>${direction.callback}</p></div>
+              </div>
+            </details>
+            <div class="dialogue">
+              <div class="message user"><span class="speaker">Deelnemer</span>${scenario.prompt}</div>
+              <div class="message bot"><span class="speaker">FlunkieBot</span>${scenario.replies[direction.key]}</div>
+            </div>
+            <div class="feedback">
+              <div class="verdicts" aria-label="Beoordeel ${direction.name}">
+                ${['dead', 'keep', 'best'].map((value) => `
+                  <button
+                    type="button"
+                    class="verdict"
+                    data-value="${value}"
+                    aria-pressed="${verdict === value}"
+                  >${{ dead: 'Weg', keep: 'Hou', best: 'Beste' }[value]}</button>
+                `).join('')}
+              </div>
+              <textarea id="note-${scenario.id}-${direction.key}" name="note-${scenario.id}-${direction.key}" data-note placeholder="Wat werkt hier wel of juist niet?">${escapeHtml(note)}</textarea>
+            </div>
+          </article>
+        `;
+      }).join('');
+
+      container.querySelectorAll('.variant').forEach((card) => {
+        const directionKey = card.dataset.direction;
+        const feedbackKey = keyFor(scenario.id, directionKey);
+        card.querySelectorAll('.verdict').forEach((button) => {
+          button.addEventListener('click', () => {
+            const value = button.dataset.value;
+            state.verdicts[feedbackKey] = state.verdicts[feedbackKey] === value ? '' : value;
+            card.dataset.verdict = state.verdicts[feedbackKey];
+            card.querySelectorAll('.verdict').forEach((candidate) => {
+              candidate.setAttribute('aria-pressed', String(candidate.dataset.value === state.verdicts[feedbackKey]));
+            });
+            updateFeedbackCount();
+          });
+        });
+        card.querySelector('[data-note]').addEventListener('input', (event) => {
+          state.notes[feedbackKey] = event.target.value;
+          updateFeedbackCount();
+        });
+      });
+    }
+
+    function saveVisibleNotes() {
+      document.querySelectorAll('.variant').forEach((card) => {
+        const feedbackKey = keyFor(state.activeScenario, card.dataset.direction);
+        state.notes[feedbackKey] = card.querySelector('[data-note]')?.value || '';
+      });
+    }
+
+    function updateFeedbackCount() {
+      const verdictCount = Object.values(state.verdicts).filter(Boolean).length;
+      const noteCount = Object.values(state.notes).filter((note) => note.trim()).length;
+      const label = verdictCount === 0 && noteCount === 0
+        ? 'Nog niets beoordeeld'
+        : `${verdictCount} keuzes · ${noteCount} notities`;
+      document.getElementById('feedbackCount').textContent = label;
+    }
+
+    function buildFeedback() {
+      saveVisibleNotes();
+      const lines = ['# Feedback op FlunkieBot-stemrichtingen', ''];
+      scenarios.forEach((scenario) => {
+        const entries = directions.map((direction) => {
+          const feedbackKey = keyFor(scenario.id, direction.key);
+          return {
+            direction,
+            verdict: state.verdicts[feedbackKey],
+            note: state.notes[feedbackKey]?.trim()
+          };
+        }).filter((entry) => entry.verdict || entry.note);
+
+        if (entries.length === 0) return;
+        lines.push(`## ${scenario.label}: ${scenario.title}`, '');
+        entries.forEach(({ direction, verdict, note }) => {
+          lines.push(`- ${direction.key} - ${direction.name}: ${verdict || 'geen keuze'}`);
+          if (note) lines.push(`  - ${note.replace(/\n/g, '\n  - ')}`);
+        });
+        lines.push('');
+      });
+      return lines.join('\n').trim();
+    }
+
+    async function copyFeedback() {
+      const feedback = buildFeedback();
+      const button = document.getElementById('copyFeedback');
+      if (!feedback.includes('## ')) {
+        button.textContent = 'Beoordeel eerst iets';
+        setTimeout(() => { button.textContent = 'Kopieer feedback'; }, 1400);
+        return;
+      }
+      await navigator.clipboard.writeText(feedback);
+      button.textContent = 'Gekopieerd';
+      setTimeout(() => { button.textContent = 'Kopieer feedback'; }, 1400);
+    }
+
+    function escapeHtml(value) {
+      return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function render() {
+      const scenario = scenarios.find((candidate) => candidate.id === state.activeScenario);
+      document.getElementById('scenarioTitle').textContent = scenario.title;
+      document.getElementById('scenarioPurpose').textContent = scenario.purpose;
+      renderTabs();
+      renderVariants(scenario);
+      updateFeedbackCount();
+    }
+
+    document.getElementById('copyFeedback').addEventListener('click', () => {
+      copyFeedback().catch(() => {
+        document.getElementById('copyFeedback').textContent = 'Kopiëren mislukt';
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>
