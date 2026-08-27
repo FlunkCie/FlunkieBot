@@ -97,14 +97,20 @@ async function handleMessage(sock, msg) {
 
     appendHistory(jid, 'user', prompt);
     appendHistory(jid, 'assistant', reply);
-    await sock.sendMessage(jid, { text: reply, linkPreview: null }, { quoted: msg });
+    // Quoting only matters in groups, where it ties the reply to the message
+    // that mentioned the bot. In a 1:1 chat it's just noise.
+    await sock.sendMessage(
+      jid,
+      { text: reply, linkPreview: null },
+      isGroup ? { quoted: msg } : undefined
+    );
   } catch (err) {
     logger.error({ err, jid }, 'Failed to get/send LLM reply');
     try {
       await sock.sendMessage(
         jid,
         { text: "Sorry, I couldn't process that right now.", linkPreview: null },
-        { quoted: msg }
+        isGroup ? { quoted: msg } : undefined
       );
     } catch (sendErr) {
       logger.error({ err: sendErr, jid }, 'Failed to send fallback error message');
@@ -123,6 +129,10 @@ async function startBot() {
   const sock = makeWASocket({
     auth: state,
     logger: baileysLogger,
+    // Baileys' default (60s) can be tight for a background "props" sync
+    // query over Docker's network path; give it more headroom so it doesn't
+    // spuriously time out (harmless when it happens, but noisy in logs).
+    defaultQueryTimeoutMs: 120_000,
   });
 
   sock.ev.on('creds.update', saveCreds);
