@@ -1,4 +1,5 @@
-// Scenarios 59-70. Unprompted personal messages, verified end to end through
+// Scenarios 59-71 and 73 (72 is the migration, in database.test.js). Unprompted
+// personal messages, verified end to end through
 // chat orchestration with a fake WhatsApp sender, real file-backed memory and
 // reply generation backed by fake providers, exactly like the addressed-turn
 // scenarios. Nothing here touches the network.
@@ -468,4 +469,37 @@ test('71. never accepts the silence token for an unprompted message', async () =
     /All initiative providers failed/,
     'exhausted fallback is a generation failure, never a silent bot'
   );
+});
+
+test('73. never treats a name dropped in a one-on-one thread as being discussed in the group', async (t) => {
+  const clock = localClock();
+  const fixture = createChatFixture({ clock, initiative: DM_ONLY });
+  t.after(() => fixture.memory.close());
+  fixture.setInitiativeReply({ text: 'POKE alex' });
+
+  // Both have their own direct thread, so both are eligible targets.
+  await fixture.chat.handleMessage(dm(ALEX, 'A-DM-1'));
+  await fixture.chat.handleMessage(dm(QUIRIJN, 'Q-DM-1'));
+
+  // Alex has been silent for two days and is now named, but only in a private
+  // one-on-one thread. Passing that on to him is not FlunkieBot's to do.
+  clock.advance(2 * DAY_MS);
+  await fixture.chat.handleMessage(dm(QUIRIJN, 'Q-DM-2', 'waar is Alex eigenlijk gebleven, bot?'));
+
+  assert.equal(fixture.initiativeRequests.length, 0, 'no unprompted message is even generated');
+  assert.equal(fixture.memory.inspect.initiatives().length, 0);
+  assert.ok(
+    fixture.sender.sent.every((message) => !message.text.startsWith('POKE')),
+    'nothing unprompted reaches WhatsApp'
+  );
+
+  // The very same sentence in the group is the occasion, which pins the
+  // difference on the source conversation and nothing else.
+  await fixture.chat.handleMessage(
+    groupMessage(QUIRIJN, 'Q-G-1', 'waar is Alex eigenlijk gebleven, bot?')
+  );
+  const initiatives = fixture.memory.inspect.initiatives();
+  assert.equal(initiatives.length, 1);
+  assert.equal(initiatives[0].occasion, 'discussed-while-absent');
+  assert.equal(fixture.sender.sent.at(-1).conversationAddress, ALEX.alias.value);
 });

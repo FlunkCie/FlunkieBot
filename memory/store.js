@@ -261,9 +261,11 @@ export function createStore({ path, migrations }) {
               sent_at AS sentAt, replied_at AS repliedAt
          FROM initiatives ORDER BY sent_at, id`
     ),
+    // A reply is matched on the participant, not on one thread: the same person
+    // can own two direct conversations and may answer in either of them.
     markInitiativesReplied: db.prepare(
       `UPDATE initiatives SET replied_at = ?
-        WHERE participant_id = ? AND conversation_id = ?
+        WHERE participant_id = ?
           AND replied_at IS NULL AND sent_at <= ?`
     ),
 
@@ -629,13 +631,8 @@ export function createStore({ path, migrations }) {
     listInitiatives() {
       return statements.listInitiatives.all();
     },
-    markInitiativesReplied(participantId, conversationId, repliedAt) {
-      return statements.markInitiativesReplied.run(
-        repliedAt,
-        participantId,
-        conversationId,
-        repliedAt
-      ).changes;
+    markInitiativesReplied(participantId, repliedAt) {
+      return statements.markInitiativesReplied.run(repliedAt, participantId, repliedAt).changes;
     },
     listDirectThreads() {
       return statements.listDirectThreads.all();

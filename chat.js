@@ -184,12 +184,24 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
     }
 
     try {
-      const sentMessage = await sender.sendText(address, outcome.text);
-      await memory.finishInitiative(prepared.initiativeId, { kind: 'sent', sentMessage });
-      logger?.info?.({ address, occasion: prepared.context.occasion }, 'Sent an unprompted message');
-    } catch (err) {
-      logger?.error?.({ err, address }, 'Failed to send an unprompted message');
-      await memory.finishInitiative(prepared.initiativeId, { kind: 'not-sent' });
+      let sentMessage;
+      try {
+        sentMessage = await sender.sendText(address, outcome.text);
+      } catch (err) {
+        logger?.error?.({ err, address }, 'Failed to send an unprompted message');
+        await memory.finishInitiative(prepared.initiativeId, { kind: 'not-sent' });
+        return;
+      }
+
+      // The message is out. A recording failure is reported and nothing more:
+      // abandoning it here would hand its budget slot back for a message that
+      // has already arrived.
+      try {
+        await memory.finishInitiative(prepared.initiativeId, { kind: 'sent', sentMessage });
+        logger?.info?.({ address, occasion: prepared.context.occasion }, 'Sent an unprompted message');
+      } catch (err) {
+        logger?.error?.({ err, address }, 'Sent an unprompted message but could not record it');
+      }
     } finally {
       try {
         await sender.sendPresence?.(address, 'paused');

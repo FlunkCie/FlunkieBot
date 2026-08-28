@@ -242,11 +242,12 @@ export function createMemory({
             )
           : null;
         // An incoming message in a direct thread answers every unprompted
-        // message still waiting for one there. Replied-to initiatives do not
+        // message still waiting for one from that participant, whichever of
+        // their direct threads it arrives in. Replied-to initiatives do not
         // count towards the stop rule, exactly as WhatsApp's own limit on
         // unanswered messages works.
         if (participantId && observation.direction === 'incoming' && conversation.kind === 'direct') {
-          store.markInitiativesReplied(participantId, conversation.id, now);
+          store.markInitiativesReplied(participantId, now);
         }
         return { messageId, runId };
       });
@@ -475,13 +476,26 @@ export function createMemory({
      * sent. Only a delivered message becomes an initiative, because only a
      * delivered message can annoy anyone, can be ignored, or can burn a memory.
      * An abandoned initiative releases its reservation and leaves no trace.
+     *
+     * A delivered message releases its reservation only once the ledger write
+     * has committed. A failing write therefore leaves the reservation standing,
+     * where it keeps counting against both halves of the budget, rather than
+     * letting a message that is already out go uncounted.
      */
     async finishInitiative(initiativeId, outcome) {
-      const reserved = reservedInitiatives.get(String(initiativeId));
-      if (!reserved) throw new Error(`Unknown initiative ${initiativeId}`);
-      reservedInitiatives.delete(String(initiativeId));
+      const key = String(initiativeId);
+      const reserved = reservedInitiatives.get(key);
+      if (!reserved) {
+        // Abandoning something that holds no reservation any more is the
+        // outcome it asks for, not an error worth masking a send failure with.
+        if (outcome?.kind !== 'sent') return;
+        throw new Error(`Unknown initiative ${initiativeId}`);
+      }
 
-      if (outcome?.kind !== 'sent') return;
+      if (outcome?.kind !== 'sent') {
+        reservedInitiatives.delete(key);
+        return;
+      }
 
       const commit = store.transaction(() => {
         const messageId = store.insertMessage({
@@ -508,6 +522,7 @@ export function createMemory({
       });
 
       commit();
+      reservedInitiatives.delete(key);
     },
 
     // Test-visible read models. They return domain records, never SQL or

@@ -203,12 +203,19 @@ function mentionsLabel(text, label) {
 }
 
 /**
- * Occasion 1: someone was discussed in the group while they had been silent
+ * Occasion 1: someone was discussed *in the group* while they had been silent
  * themselves for at least a day. The strongest occasion on content, and the one
  * most likely to be answered.
+ *
+ * Only a group counts as a place where someone is discussed. A name dropped in
+ * a one-on-one thread is a private remark, and passing it on to a third person
+ * is not something FlunkieBot may do.
  */
 function discussedWhileAbsent(store, candidates, { now, sourceConversationId }) {
   if (!sourceConversationId) return [];
+
+  const source = store.findConversationById(sourceConversationId);
+  if (source?.kind !== 'group') return [];
 
   const spoken = store.messagesInConversationSince(
     sourceConversationId,
@@ -256,12 +263,17 @@ function discussedWhileAbsent(store, candidates, { now, sourceConversationId }) 
   return found;
 }
 
+/** Identifies a durable memory across categories, so reservations can name one. */
+function memoryKey(category, id) {
+  return `${category}:${id}`;
+}
+
 /**
  * Occasion 2: a stored episode has been sitting there for at least a fortnight
  * and has never been used for an initiative. Selection here is ripeness and
  * novelty, not relevance: there is no current message to be relevant to.
  */
-function ripeEpisode(store, candidates, { now }) {
+function ripeEpisode(store, candidates, { now, reservedMemories }) {
   const byParticipant = new Map();
   for (const candidate of candidates) byParticipant.set(candidate.participantId, candidate);
   if (byParticipant.size === 0) return [];
@@ -275,6 +287,10 @@ function ripeEpisode(store, candidates, { now }) {
 
   const found = [];
   for (const episode of store.listRipeUnusedEpisodes(now - EPISODE_RIPENESS_MS)) {
+    // A memory that is already spoken for by a selected-but-not-yet-sent
+    // initiative is as spent as one the ledger already records.
+    if (reservedMemories.has(memoryKey('episode', episode.id))) continue;
+
     const participantIds =
       involved.get(episode.id) ??
       (episode.reporterParticipantId
@@ -318,6 +334,14 @@ export function selectInitiativeTarget(
   if (!weeklyBudgetAllows(store, now, settings, reserved.length)) return null;
 
   const reservedParticipants = new Set(reserved.map((entry) => entry.participantId));
+  // A reservation holds its recipient, its weekly slot *and* the memory it is
+  // about to spend, so two turns finishing concurrently cannot burn the same
+  // callback on two different people.
+  const reservedMemories = new Set(
+    reserved
+      .filter((entry) => entry.memory)
+      .map((entry) => memoryKey(entry.memory.category, entry.memory.id))
+  );
   const excludedSource = sourceParticipantId ? resolveParticipantId(store, sourceParticipantId) : null;
 
   const candidates = [];
@@ -333,7 +357,7 @@ export function selectInitiativeTarget(
   const discussed = discussedWhileAbsent(store, candidates, { now, sourceConversationId });
   if (discussed.length > 0) return discussed[0];
 
-  const ripe = ripeEpisode(store, candidates, { now });
+  const ripe = ripeEpisode(store, candidates, { now, reservedMemories });
   if (ripe.length > 0) return ripe[0];
 
   return null;
