@@ -5,12 +5,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FAILURE_NOTIFICATION_TEXT } from '../chat.js';
 import { SILENCE_TOKEN } from '../reply/index.js';
+import { createWhatsAppSender } from '../whatsapp.js';
 import { createClock } from './helpers/clock.js';
 import { createChatFixture } from './helpers/chat-fixture.js';
 import { incoming } from './helpers/messages.js';
 import { temporaryDatabasePath } from './helpers/temp-database.js';
 
 const GROUP = { address: 'flunkcie@g.us', kind: 'group', conversationLabel: 'FlunkCie' };
+
+/** Lets pending microtasks run until a condition holds, instead of forever. */
+async function waitFor(condition, message) {
+  for (let tick = 0; tick < 1000; tick += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(message);
+}
 
 test('44. processes one conversation in FIFO order', async (t) => {
   const clock = createClock();
@@ -294,6 +304,105 @@ test('replayed WhatsApp messages are handled idempotently', async (t) => {
   assert.equal(fixture.memory.inspect.messageCount(), messagesAfterFirst, 'no duplicated messages');
   assert.equal(fixture.memory.inspect.turnOutcomes().length, outcomesAfterFirst, 'no duplicated turns');
   assert.equal(fixture.memory.inspect.pendingRuns().length, 0, 'no duplicated extraction work');
+});
+
+// Supplementary coverage: an envelope first observed as ambient and only later
+// presented as addressed is a genuine addressed turn, not a replay.
+test('an ambient message that turns out to be addressed is still answered', async (t) => {
+  const clock = createClock();
+  const fixture = createChatFixture({ clock });
+  t.after(() => fixture.memory.close());
+
+  const envelope = incoming({ ...GROUP, id: 'AM-1', addressed: false, text: 'oi wat vind jij' });
+  await fixture.chat.handleMessage(envelope);
+
+  assert.equal(fixture.sender.sent.length, 0, 'ambient observation never replies');
+  assert.equal(fixture.memory.inspect.turnOutcomes().length, 0);
+
+  clock.advance(1000);
+  await fixture.chat.handleMessage({ ...envelope, addressed: true });
+
+  assert.equal(fixture.sender.sent.length, 1, 'the addressed observation of the same envelope is answered');
+  assert.equal(fixture.memory.inspect.messageCount(), 2, 'the observed message is not stored twice');
+  assert.equal(fixture.memory.inspect.turnOutcomes().at(-1).kind, 'reply-sent');
+
+  // From there on the envelope is a true replay again.
+  clock.advance(1000);
+  await fixture.chat.handleMessage({ ...envelope, addressed: true });
+  assert.equal(fixture.sender.sent.length, 1, 'a finished turn is never replayed into a second reply');
+  assert.equal(fixture.memory.inspect.turnOutcomes().length, 1);
+});
+
+// Supplementary coverage: remembering happens behind the conversation's FIFO
+// slot, so it costs the next message in that conversation no latency.
+test('extraction never delays the next message in the same conversation', async (t) => {
+  const clock = createClock();
+  const fixture = createChatFixture({ clock });
+  t.after(() => fixture.memory.close());
+
+  let releaseExtraction;
+  const blocked = new Promise((resolve) => {
+    releaseExtraction = () => resolve({ memories: [] });
+  });
+  let extractions = 0;
+  fixture.setExtraction(() => {
+    extractions += 1;
+    return extractions === 1 ? blocked : { memories: [] };
+  });
+
+  const first = fixture.chat.handleMessage(incoming({ id: 'B-1', text: 'eerste' }));
+  await waitFor(() => fixture.sender.sent.length === 1, 'the first reply was never sent');
+  assert.equal(extractions, 1, 'extraction for the first turn is in flight');
+
+  clock.advance(1000);
+  const second = fixture.chat.handleMessage(incoming({ id: 'B-2', text: 'tweede' }));
+  await waitFor(
+    () => fixture.sender.sent.length === 2,
+    'the next message waited for the previous extraction'
+  );
+  assert.deepEqual(
+    fixture.sender.sent.map((message) => message.text),
+    ['Kanker goed.', 'Kanker goed.'],
+    'replies still leave in order'
+  );
+
+  releaseExtraction();
+  await Promise.all([first, second]);
+  assert.equal(fixture.memory.inspect.pendingRuns().length, 0, 'the released extraction still completes');
+});
+
+// Supplementary coverage: one sender outlives every reconnect, so the chat and
+// its per-conversation queues can too.
+test('the sender keeps writing to the current connection across a reconnect', async () => {
+  const sends = [];
+  const socketNamed = (name) => ({
+    async sendMessage(address, content) {
+      sends.push({ name, address, text: content.text });
+      return { key: { id: `${name}-1` } };
+    },
+    async sendPresenceUpdate() {},
+  });
+
+  let connection = socketNamed('first');
+  // The typing pacing between bubbles is real time in production; the suite
+  // injects an instant one so it stays deterministic and offline.
+  const sender = createWhatsAppSender(() => connection, () => 0, { sleep: async () => {} });
+
+  await sender.sendText('3120000@s.whatsapp.net', 'voor de reconnect');
+  connection = socketNamed('second');
+  await sender.sendText('3120000@s.whatsapp.net', 'na de reconnect');
+
+  assert.deepEqual(
+    sends.map((entry) => entry.name),
+    ['first', 'second'],
+    'a reconnect never leaves the sender on the dead socket'
+  );
+
+  connection = null;
+  await assert.rejects(
+    () => sender.sendText('3120000@s.whatsapp.net', 'zonder verbinding'),
+    /No WhatsApp connection/
+  );
 });
 
 test('56. confirms that direct-message and tagged-group routing still work', async (t) => {

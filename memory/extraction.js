@@ -1,6 +1,6 @@
 import {
-  EXTRACTION_SCHEMA,
   EXTRACTION_SCHEMA_NAME,
+  PROVIDER_EXTRACTION_SCHEMA,
   validateAgainstSchema,
   CLAIM_TEXT_LIMIT,
   EPISODE_TEXT_LIMIT,
@@ -422,7 +422,7 @@ export function buildExtractionRequest(packet) {
     output: Object.freeze({
       kind: 'structured',
       name: EXTRACTION_SCHEMA_NAME,
-      schema: EXTRACTION_SCHEMA,
+      schema: PROVIDER_EXTRACTION_SCHEMA,
     }),
   });
 }

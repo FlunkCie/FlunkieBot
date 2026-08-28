@@ -27,7 +27,7 @@ function randomBetween(min, max) {
   return min + Math.random() * (max - min);
 }
 
-function sleep(ms) {
+function realSleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -101,7 +101,7 @@ function typingDelayFor(text) {
 // video. Search failures (no results, API hiccup, no GIF search configured)
 // just drop that bubble rather than failing the whole reply or falling back to
 // awkwardly texting out the raw directive.
-async function sendGifPart(sock, jid, query, options, { gifSearch, logger }) {
+async function sendGifPart(sock, jid, query, options, { gifSearch, logger, sleep }) {
   if (!gifSearch) {
     logger?.warn?.({ query, jid }, 'Received a gif directive without GIF search configured');
     return null;
@@ -117,7 +117,7 @@ async function sendGifPart(sock, jid, query, options, { gifSearch, logger }) {
   return sock.sendMessage(jid, { video: { url }, gifPlayback: true }, options);
 }
 
-async function sendTextPart(sock, jid, text, options) {
+async function sendTextPart(sock, jid, text, options, sleep) {
   await sleep(typingDelayFor(text));
   return sock.sendMessage(jid, { text, linkPreview: null }, options);
 }
@@ -132,7 +132,12 @@ async function sendTextPart(sock, jid, text, options) {
  * the rest of the application correlates the reply with. Throws when no bubble
  * could be delivered at all, so the caller can record a send failure.
  */
-export async function sendNaturally(sock, jid, reply, { quoted, gifSearch, logger } = {}) {
+export async function sendNaturally(
+  sock,
+  jid,
+  reply,
+  { quoted, gifSearch, logger, sleep = realSleep } = {}
+) {
   const parts = splitIntoMessages(reply);
   if (parts.length === 0) return null;
 
@@ -148,8 +153,8 @@ export async function sendNaturally(sock, jid, reply, { quoted, gifSearch, logge
 
     const gifMatch = part.match(GIF_DIRECTIVE);
     const sent = gifMatch
-      ? await sendGifPart(sock, jid, gifMatch[1], options, { gifSearch, logger })
-      : await sendTextPart(sock, jid, part, options);
+      ? await sendGifPart(sock, jid, gifMatch[1], options, { gifSearch, logger, sleep })
+      : await sendTextPart(sock, jid, part, options, sleep);
 
     if (sent && !first) first = sent;
 

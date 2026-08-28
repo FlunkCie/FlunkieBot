@@ -12,19 +12,24 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
   // One FIFO promise queue per normalized conversation address: messages in one
   // conversation can never race or reorder, while different conversations may
   // wait on different providers concurrently.
+  //
+  // The queue slot spans observation up to and including the sent reply and its
+  // committed turn outcome. Remembering happens behind that slot, so extraction
+  // never adds latency to the next message in the same conversation. The
+  // returned promise still settles only once that follow-up work is done.
   const queues = new Map();
 
   function enqueue(conversationAddress, task) {
     const previous = queues.get(conversationAddress) ?? Promise.resolve();
-    const next = previous.then(task, task);
+    const replied = previous.then(task, task);
     queues.set(
       conversationAddress,
-      next.then(
+      replied.then(
         () => {},
         () => {}
       )
     );
-    return next;
+    return replied.then((result) => result?.background);
   }
 
   async function observe(message) {
@@ -62,13 +67,24 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
     };
   }
 
-  async function finish(addressedTurnId, outcome) {
-    if (addressedTurnId === null) return;
+  // The outcome is committed before this returns; the promise it hands back
+  // covers only the remembering that follows, which the caller keeps out of the
+  // conversation's FIFO slot.
+  function finish(addressedTurnId, outcome) {
+    if (addressedTurnId === null) return Promise.resolve();
+    let settling;
     try {
-      await memory.finishAddressedTurn(addressedTurnId, outcome);
+      settling = memory.finishAddressedTurn(addressedTurnId, outcome);
     } catch (err) {
       logger?.error?.({ err, addressedTurnId }, 'Failed to finish addressed turn');
+      return Promise.resolve();
     }
+    return Promise.resolve(settling).then(
+      () => {},
+      (err) => {
+        logger?.error?.({ err, addressedTurnId }, 'Failed to finish addressed turn');
+      }
+    );
   }
 
   async function respond(message, addressedTurnId) {
@@ -101,18 +117,18 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
       } catch (sendErr) {
         logger?.error?.({ err: sendErr }, 'Failed to send the fixed failure notification');
       }
-      await finish(addressedTurnId, {
-        kind: 'failed',
-        stage: 'generation',
-        notificationMessage,
-      });
-      return;
+      return {
+        background: finish(addressedTurnId, {
+          kind: 'failed',
+          stage: 'generation',
+          notificationMessage,
+        }),
+      };
     }
 
     if (outcome.kind === 'silence') {
       logger?.info?.({ conversationAddress: message.conversationAddress }, 'Intentional silence');
-      await finish(addressedTurnId, { kind: 'intentional-silence' });
-      return;
+      return { background: finish(addressedTurnId, { kind: 'intentional-silence' }) };
     }
 
     let sentMessage;
@@ -122,11 +138,16 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
       });
     } catch (err) {
       logger?.error?.({ err }, 'Failed to send reply');
-      await finish(addressedTurnId, { kind: 'failed', stage: 'send', notificationMessage: null });
-      return;
+      return {
+        background: finish(addressedTurnId, {
+          kind: 'failed',
+          stage: 'send',
+          notificationMessage: null,
+        }),
+      };
     }
 
-    await finish(addressedTurnId, { kind: 'reply-sent', sentMessage });
+    return { background: finish(addressedTurnId, { kind: 'reply-sent', sentMessage }) };
   }
 
   async function process(message) {
@@ -134,7 +155,7 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
     // including ambient group messages.
     const observed = await observe(message);
 
-    if (!message.addressed) return;
+    if (!message.addressed) return null;
 
     // Observation succeeded but handed back no addressed turn: this envelope was
     // already answered before a reconnect replayed it. Replying again would
@@ -144,7 +165,7 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
         { whatsappMessageId: message.whatsappMessageId },
         'Skipping a replayed addressed message that was already handled'
       );
-      return;
+      return null;
     }
 
     try {
@@ -154,7 +175,7 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
     }
 
     try {
-      await respond(message, observed?.addressedTurnId ?? null);
+      return await respond(message, observed?.addressedTurnId ?? null);
     } finally {
       try {
         await sender.sendPresence?.(message.conversationAddress, 'paused');

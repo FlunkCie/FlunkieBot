@@ -344,3 +344,48 @@ test('24. resumes pending extraction runs after a simulated crash and stops retr
   assert.equal(secondBoot.inspect.pendingRuns().length, 0);
   secondBoot.close();
 });
+
+// Supplementary coverage: providers receive a projection of the one code-owned
+// schema, while every constraint the projection omits stays enforced locally.
+test('the extraction request carries a provider-safe schema projection', async (t) => {
+  const clock = createClock();
+  const fixture = createMemoryFixture({ clock });
+  t.after(() => fixture.memory.close());
+
+  await fixture.completeTurn({ id: 'PS-1', text: 'ik woon in Amsterdam' });
+
+  const schema = fixture.requests[0].output.schema;
+  const serialized = JSON.stringify(schema);
+  for (const keyword of ['maxItems', 'minItems', 'maxLength']) {
+    assert.ok(!serialized.includes(keyword), `strict structured output rejects "${keyword}"`);
+  }
+  assert.equal(schema.additionalProperties, false, 'the projection keeps the supported core keywords');
+  assert.deepEqual(schema.properties.memories.items.properties.category.enum, [
+    'participant_claim',
+    'episode',
+    'interaction_pattern',
+  ]);
+
+  // Whatever the provider returns is still held to the full local schema.
+  clock.advance(1000);
+  fixture.setExtraction((packet) => {
+    const trigger = triggerOf(packet);
+    return {
+      memories: [
+        {
+          category: 'participant_claim',
+          text: 'x'.repeat(400),
+          subject: trigger.author,
+          reporter: trigger.author,
+          involved: [trigger.author],
+          occurredAt: null,
+          evidence: [{ message: trigger.handle, excerpt: trigger.text.slice(0, 10) }],
+        },
+      ],
+    };
+  });
+  const observed = await fixture.completeTurn({ id: 'PS-2', text: 'ik woon in Utrecht' });
+
+  assert.equal(fixture.memory.inspect.claims().length, 0, 'an over-long claim is still rejected locally');
+  assert.equal(fixture.memory.inspect.runState(observed.addressedTurnId), 'failed');
+});

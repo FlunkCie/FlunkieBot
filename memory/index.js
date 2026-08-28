@@ -40,6 +40,11 @@ function assignLabels(entries) {
  * pruning, and exposes exactly three asynchronous memory operations:
  * `observeMessage`, `prepareAddressedTurn` and `finishAddressedTurn`.
  * `start` and `close` are lifecycle hooks, not memory operations.
+ *
+ * `finishAddressedTurn` commits the visible turn outcome before it yields and
+ * only then resolves once extraction has succeeded or exhausted its bounded
+ * fallback, so a caller that does not await it still observes the committed
+ * outcome immediately.
  */
 export function createMemory({
   dbPath = DEFAULT_DB_PATH,
@@ -138,33 +143,49 @@ export function createMemory({
       const now = observation.observedAt ?? clock();
       const conversation = conversationFor(observation, now);
 
+      const addressed = Boolean(observation.addressed) && observation.direction === 'incoming';
+
       const existing = store.findMessageByKey(conversation.id, observation.whatsappMessageId);
       if (existing) {
         // Observation is idempotent for conversation address plus WhatsApp
         // message id: a replayed message never duplicates its addressed turn.
-        // A turn whose outcome is already recorded is finished, so a reconnect
-        // replaying it must not produce a second reply or a second extraction
-        // run; a turn still pending after a crash is returned so it can finish.
         const run = store.findRunByMessage(existing.id);
-        const finished = run ? store.findTurnOutcome(run.id) : null;
-        return {
-          messageId: existing.id,
-          addressedTurnId: run && !finished ? String(run.id) : null,
-        };
+        if (run) {
+          // A turn whose outcome is already recorded is finished, so a reconnect
+          // replaying it must not produce a second reply or a second extraction
+          // run; a turn still pending after a crash is returned so it can finish.
+          const finished = store.findTurnOutcome(run.id);
+          return { messageId: existing.id, addressedTurnId: finished ? null : String(run.id) };
+        }
+
+        // A message first seen as ambient and only now presented as addressed is
+        // not a replay: it gets its addressed turn exactly as a first addressed
+        // observation would.
+        if (!addressed || existing.direction !== 'incoming') {
+          return { messageId: existing.id, addressedTurnId: null };
+        }
+
+        const promote = store.transaction(() => {
+          store.markMessageAddressed(existing.id);
+          return store.insertExtractionRun(
+            existing.id,
+            conversation.id,
+            observation.whatsappMessageId,
+            now
+          );
+        });
+        return { messageId: existing.id, addressedTurnId: String(promote()) };
       }
 
-      const participantId = resolveParticipant(store, {
-        alias: observation.senderAlias ?? null,
-        pairedAlias: observation.pairedAlias ?? null,
-        now,
-        newId: newParticipantId,
-      });
-
-      const addressed = Boolean(observation.addressed) && observation.direction === 'incoming';
-
-      // The addressed incoming message and its pending extraction run are
-      // created in one transaction.
+      // Identity resolution, the message and its pending extraction run are
+      // written in one transaction.
       const write = store.transaction(() => {
+        const participantId = resolveParticipant(store, {
+          alias: observation.senderAlias ?? null,
+          pairedAlias: observation.pairedAlias ?? null,
+          now,
+          newId: newParticipantId,
+        });
         const messageId = store.insertMessage({
           conversationId: conversation.id,
           participantId,

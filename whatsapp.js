@@ -105,18 +105,32 @@ export function normalizeEnvelope(envelope, { botJids, now }) {
 }
 
 /**
- * Wraps a Baileys socket in the small sender interface orchestration needs.
+ * Wraps the Baileys connection in the small sender interface orchestration
+ * needs. The socket is resolved per call, so one long-lived sender keeps
+ * pointing at the current connection across reconnects.
+ *
  * One reply text may reach WhatsApp as several bubbles; that is transport
  * presentation and stays entirely inside this adapter. The turn is correlated
  * with the first bubble, and the whole reply text is what gets remembered.
  */
-export function createWhatsAppSender(sock, clock = () => Date.now(), { gifSearch, logger } = {}) {
+export function createWhatsAppSender(
+  resolveSocket,
+  clock = () => Date.now(),
+  { gifSearch, logger, sleep } = {}
+) {
+  function socket() {
+    const sock = resolveSocket();
+    if (!sock) throw new Error('No WhatsApp connection is available');
+    return sock;
+  }
+
   return {
     async sendText(conversationAddress, text, { quoted } = {}) {
-      const sent = await sendNaturally(sock, conversationAddress, text, {
+      const sent = await sendNaturally(socket(), conversationAddress, text, {
         quoted,
         gifSearch,
         logger,
+        sleep,
       });
       return {
         whatsappMessageId: sent?.key?.id ?? `local-${clock()}`,
@@ -125,7 +139,7 @@ export function createWhatsAppSender(sock, clock = () => Date.now(), { gifSearch
       };
     },
     async sendPresence(conversationAddress, state) {
-      await sock.sendPresenceUpdate(state, conversationAddress);
+      await socket().sendPresenceUpdate(state, conversationAddress);
     },
   };
 }

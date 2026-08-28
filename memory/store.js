@@ -83,6 +83,9 @@ export function createStore({ path, migrations }) {
           observed_at, addressed, body, author_label)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ),
+    markMessageAddressed: db.prepare(
+      'UPDATE messages SET addressed = 1 WHERE id = ?'
+    ),
     recentMessages: db.prepare(
       `SELECT id, conversation_id AS conversationId, participant_id AS participantId,
               whatsapp_message_id AS whatsappMessageId, direction,
@@ -283,6 +286,25 @@ export function createStore({ path, migrations }) {
     return db.transaction(fn);
   }
 
+  // Absorbing an identity moves every durable reference and records the
+  // permanent redirect as one atomic unit: a participant can never end up split
+  // across the absorbed and the surviving identity.
+  const absorb = db.transaction((absorbedId, survivingId, now) => {
+    statements.reassignAliases.run(survivingId, absorbedId);
+    statements.reassignMessages.run(survivingId, absorbedId);
+    statements.reassignClaimSubjects.run(survivingId, absorbedId);
+    statements.reassignClaimReporters.run(survivingId, absorbedId);
+    statements.reassignEpisodeReporters.run(survivingId, absorbedId);
+    statements.reassignPatternParticipants.run(survivingId, absorbedId);
+    statements.reassignEvidenceReporters.run(survivingId, absorbedId);
+    statements.dropDuplicateEpisodeLinks.run(absorbedId, survivingId);
+    statements.reassignEpisodeLinks.run(survivingId, absorbedId);
+    statements.dropDuplicateEvidenceLinks.run(absorbedId, survivingId);
+    statements.reassignEvidenceLinks.run(survivingId, absorbedId);
+    statements.reassignRedirects.run(survivingId, absorbedId);
+    statements.insertRedirect.run(absorbedId, survivingId, now);
+  });
+
   return {
     close() {
       db.close();
@@ -327,19 +349,7 @@ export function createStore({ path, migrations }) {
       return statements.listConflicts.all();
     },
     absorbParticipant(absorbedId, survivingId, now) {
-      statements.reassignAliases.run(survivingId, absorbedId);
-      statements.reassignMessages.run(survivingId, absorbedId);
-      statements.reassignClaimSubjects.run(survivingId, absorbedId);
-      statements.reassignClaimReporters.run(survivingId, absorbedId);
-      statements.reassignEpisodeReporters.run(survivingId, absorbedId);
-      statements.reassignPatternParticipants.run(survivingId, absorbedId);
-      statements.reassignEvidenceReporters.run(survivingId, absorbedId);
-      statements.dropDuplicateEpisodeLinks.run(absorbedId, survivingId);
-      statements.reassignEpisodeLinks.run(survivingId, absorbedId);
-      statements.dropDuplicateEvidenceLinks.run(absorbedId, survivingId);
-      statements.reassignEvidenceLinks.run(survivingId, absorbedId);
-      statements.reassignRedirects.run(survivingId, absorbedId);
-      statements.insertRedirect.run(absorbedId, survivingId, now);
+      absorb(absorbedId, survivingId, now);
     },
 
     // Conversations and messages
@@ -374,6 +384,9 @@ export function createStore({ path, migrations }) {
         message.authorLabel
       );
       return Number(info.lastInsertRowid);
+    },
+    markMessageAddressed(messageId) {
+      statements.markMessageAddressed.run(messageId);
     },
     recentMessages(conversationId, excludeMessageId, limit) {
       return statements.recentMessages.all(conversationId, excludeMessageId ?? -1, limit);

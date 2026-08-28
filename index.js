@@ -81,6 +81,17 @@ async function main() {
     }
   });
 
+  // Chat orchestration, and with it the per-conversation FIFO queues, lives for
+  // the whole process. A reconnect only swaps the socket the sender writes to,
+  // so work still in flight can never race a replayed message on a fresh queue.
+  let socket = null;
+  const chat = createChat({
+    memory,
+    replyGeneration,
+    sender: createWhatsAppSender(() => socket, undefined, { gifSearch, logger }),
+    logger,
+  });
+
   async function startBot() {
     logger.info('Starting bot...');
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
@@ -94,12 +105,7 @@ async function main() {
       defaultQueryTimeoutMs: 120_000,
     });
 
-    const chat = createChat({
-      memory,
-      replyGeneration,
-      sender: createWhatsAppSender(sock, undefined, { gifSearch, logger }),
-      logger,
-    });
+    socket = sock;
 
     sock.ev.on('creds.update', saveCreds);
 

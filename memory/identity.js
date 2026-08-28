@@ -48,12 +48,19 @@ function recordConflict(store, alias, counterpart, heldBy, conflicting, now) {
  * Resolves the participant behind one envelope's aliases, joining or merging
  * only where the envelope itself supplies explicit pairing evidence.
  *
+ * Participant creation, alias pairing and merging all happen inside one
+ * transaction, so an interrupted resolution leaves no half-joined identity.
+ *
  * Returns the resolved participant id, or null when the envelope carries no
  * usable alias at all.
  */
 export function resolveParticipant(store, { alias, pairedAlias, now, newId = randomUUID }) {
   if (!alias) return null;
+  const resolve = store.transaction(() => resolveWithinTransaction(store, { alias, pairedAlias, now, newId }));
+  return resolve();
+}
 
+function resolveWithinTransaction(store, { alias, pairedAlias, now, newId }) {
   const participantId = participantForAlias(store, alias, now, newId);
   if (!pairedAlias || pairedAlias.kind === alias.kind) return participantId;
 
