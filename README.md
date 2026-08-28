@@ -6,7 +6,7 @@ It is built on [Baileys](https://github.com/WhiskeySockets/Baileys), answers wit
 See [CONTEXT.md](CONTEXT.md) for the domain model and the exact vocabulary this codebase uses.
 
 - **Direct messages**: every supported message addresses FlunkieBot and gets a reply, sent plain (no quoted reference).
-- **Group conversations**: FlunkieBot replies only when tagged with `@FlunkieBot`, quoting the message that mentioned it. There are no spontaneous group replies.
+- **Group conversations**: FlunkieBot replies only when addressed — tagged with `@FlunkieBot`, or the message text itself contains "bot", "flunk"/"flunkie", or "gif" — quoting the message that addressed it. There are no spontaneous group replies.
 - **Ambient observation**: ordinary group messages are observed and stored for context without producing a reply, so FlunkieBot understands the group without interrupting it.
 - **Persistent memory**: recent conversation messages and automatically selected durable memories live in one local SQLite database that survives restarts and container rebuilds.
 - **Participant identity**: a participant is recognized across conversations through evidence-backed WhatsApp aliases, never through guesses based on digits, names, group membership, or timing.

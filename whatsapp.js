@@ -52,10 +52,22 @@ export function isBotMentioned(message, botJids) {
   return mentionedJids.some((jid) => botJids.has(normalizeJid(jid)));
 }
 
+// A looser, text-only trigger alongside the @FlunkieBot tag: a group message
+// that just mentions the bot by name (or asks for a gif) also counts as
+// addressing it, even without a formal @-mention.
+const ADDRESS_KEYWORDS = ['bot', 'flunk', 'gif'];
+
+export function containsAddressKeyword(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return ADDRESS_KEYWORDS.some((keyword) => lower.includes(keyword));
+}
+
 /**
  * Translates one Baileys envelope into a normalized message, or null when the
- * message is not supported. Group replies still require an @FlunkieBot tag:
- * ambient group messages are observed but never answered spontaneously.
+ * message is not supported. Group replies still require the bot to be
+ * addressed, by an @FlunkieBot tag or by name in the text itself: ambient
+ * group messages are observed but never answered spontaneously.
  */
 export function normalizeEnvelope(envelope, { botJids, now }) {
   if (!envelope?.message) return null;
@@ -95,8 +107,11 @@ export function normalizeEnvelope(envelope, { botJids, now }) {
     whatsappMessageId: envelope.key?.id,
     text,
     observedAt: envelope.messageTimestamp ? Number(envelope.messageTimestamp) * 1000 : now,
-    // A direct message always addresses FlunkieBot; a group message only when tagged.
-    addressed: isGroup ? isBotMentioned(envelope.message, botJids) : true,
+    // A direct message always addresses FlunkieBot; a group message when
+    // tagged, or when the text itself calls out to the bot by name.
+    addressed: isGroup
+      ? isBotMentioned(envelope.message, botJids) || containsAddressKeyword(text)
+      : true,
     senderLabel: envelope.pushName ?? null,
     senderAlias,
     pairedAlias,
