@@ -1,0 +1,1014 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>PROTOTYPE - FlunkieBot memory policy</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #0c0d0c;
+      --panel: #151715;
+      --raised: #1d201d;
+      --ink: #f4f0e6;
+      --muted: #a9aea7;
+      --line: #343834;
+      --accent: #d7ff3f;
+      --accent-ink: #101508;
+      --keep: #77dfa0;
+      --drop: #ff867c;
+      --claim: #8fc7ff;
+      --episode: #ffbd66;
+      --interaction: #72dfd4;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 14% -8%, rgba(215, 255, 63, 0.1), transparent 30rem),
+        var(--page);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, select, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+
+    .shell {
+      width: min(1440px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 38px 0 84px;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font: 800 0.74rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 900px;
+      margin: 10px 0 12px;
+      font-size: clamp(2.25rem, 5vw, 5rem);
+      line-height: 0.96;
+      letter-spacing: -0.055em;
+    }
+
+    .intro {
+      max-width: 900px;
+      margin: 0 0 28px;
+      color: var(--muted);
+      font-size: 1.03rem;
+      line-height: 1.58;
+    }
+
+    .prototype-warning {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 20px;
+      border: 1px solid #5e642f;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(215, 255, 63, 0.07);
+      color: #e6f69d;
+      font-size: 0.83rem;
+      font-weight: 750;
+    }
+
+    .prototype-warning::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .policy {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      overflow: hidden;
+      margin-bottom: 24px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--line);
+    }
+
+    .policy-field {
+      min-width: 0;
+      padding: 14px;
+      background: var(--panel);
+    }
+
+    .policy-field label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .policy-field select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 9px 10px;
+      background: #0f110f;
+      color: var(--ink);
+    }
+
+    .scenario-tabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 12px;
+    }
+
+    .scenario-tab {
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 10px 15px;
+      background: var(--panel);
+      color: var(--muted);
+    }
+
+    .scenario-tab[aria-selected="true"] {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: var(--accent-ink);
+      font-weight: 800;
+    }
+
+    .walkthrough {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: end;
+      margin-bottom: 20px;
+      border-left: 3px solid var(--accent);
+      padding: 4px 0 4px 16px;
+    }
+
+    .walkthrough h2 { margin: 0 0 6px; font-size: 1.15rem; }
+    .walkthrough p { max-width: 850px; margin: 0; color: var(--muted); line-height: 1.5; }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .action {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 13px;
+      background: var(--raised);
+      color: var(--ink);
+      font-weight: 750;
+    }
+
+    .action.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+    .action:disabled { cursor: not-allowed; opacity: 0.38; }
+
+    .next-step {
+      min-height: 65px;
+      margin-bottom: 18px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      padding: 13px 15px;
+      background: var(--raised);
+    }
+
+    .next-step b { display: block; margin-bottom: 4px; color: var(--accent); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .next-step span { color: var(--ink); line-height: 1.45; }
+
+    .state-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .column { display: grid; gap: 14px; }
+
+    .panel {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--panel);
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--raised);
+    }
+
+    .panel-head h3 { margin: 0; font-size: 0.98rem; }
+    .count { color: var(--muted); font: 700 0.76rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .panel-body { padding: 15px; }
+    .empty { margin: 0; color: var(--muted); line-height: 1.48; }
+
+    .message {
+      width: fit-content;
+      max-width: 90%;
+      margin-bottom: 10px;
+      border-radius: 12px;
+      padding: 9px 11px;
+      background: #282b27;
+      line-height: 1.4;
+    }
+
+    .message.addressed { border: 1px solid #646e31; background: #272c1b; }
+    .message.bot { background: #27302d; }
+    .message:last-child { margin-bottom: 0; }
+    .message b { display: block; margin-bottom: 3px; color: var(--muted); font-size: 0.71rem; letter-spacing: 0.05em; text-transform: uppercase; }
+
+    .candidate, .memory, .retrieved {
+      margin-bottom: 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 11px 12px;
+      background: #111311;
+    }
+
+    .candidate:last-child, .memory:last-child, .retrieved:last-child { margin-bottom: 0; }
+    .candidate.keep { border-left: 3px solid var(--keep); }
+    .candidate.drop { border-left: 3px solid var(--drop); opacity: 0.76; }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 7px;
+    }
+
+    .badge {
+      border-radius: 999px;
+      padding: 4px 7px;
+      background: #30342f;
+      color: var(--muted);
+      font-size: 0.69rem;
+      font-weight: 850;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .badge.claim { color: #0b1d2b; background: var(--claim); }
+    .badge.episode { color: #2b1704; background: var(--episode); }
+    .badge.interaction-pattern { color: #082522; background: var(--interaction); }
+    .badge.keep { color: #082313; background: var(--keep); }
+    .badge.drop { color: #2d0b08; background: var(--drop); }
+
+    .candidate p, .memory p, .retrieved p { margin: 0; line-height: 1.42; }
+    .reason { margin-top: 5px !important; color: var(--muted); font-size: 0.84rem; }
+
+    .memory footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.74rem;
+    }
+
+    .callback {
+      border-left: 3px solid var(--accent);
+      border-radius: 0 11px 11px 0;
+      padding: 12px 14px;
+      background: #252a19;
+      font-size: 1.01rem;
+      line-height: 1.48;
+    }
+
+    .callback.ghost {
+      border-left-color: var(--interaction);
+      background: #172522;
+      color: #c8f7ef;
+    }
+
+    .retrieval-score { color: var(--accent); font: 750 0.75rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .timeline {
+      max-height: 210px;
+      overflow: auto;
+      padding-left: 21px;
+      margin: 0;
+    }
+
+    .timeline li { margin-bottom: 8px; padding-left: 4px; color: var(--muted); line-height: 1.42; }
+    .timeline li:last-child { margin-bottom: 0; }
+    .timeline strong { color: var(--ink); }
+
+    .questions {
+      margin-top: 22px;
+      border: 1px solid #555d2c;
+      border-radius: 16px;
+      padding: 18px;
+      background: rgba(215, 255, 63, 0.055);
+    }
+
+    .questions h2 { margin: 0 0 6px; font-size: 1.2rem; }
+    .questions > p { margin: 0 0 15px; color: var(--muted); }
+    .question-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .question { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); line-height: 1.42; }
+
+    @media (max-width: 1050px) {
+      .policy { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .state-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 700px) {
+      .shell { width: min(100% - 20px, 1440px); padding-top: 24px; }
+      .walkthrough { grid-template-columns: 1fr; align-items: start; }
+      .policy, .question-list { grid-template-columns: 1fr; }
+      .actions { width: 100%; }
+      .action { flex: 1; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="eyebrow">Throwaway logic prototype</div>
+    <h1>What earns a place in FlunkieBot's memory?</h1>
+    <p class="intro">
+      This demo tests whether a small automatic policy can keep useful personal ammo while dropping chat noise.
+      Walk through representative conversations, inspect every candidate, and see exactly which memories power a later callback.
+    </p>
+    <div class="prototype-warning">Prototype only. The candidate extraction is scripted so the memory decisions stay visible.</div>
+
+    <section class="policy" aria-label="Memory policy controls">
+      <div class="policy-field">
+        <label for="claims">Participant claims</label>
+        <select id="claims">
+          <option value="firsthand">Firsthand and lasting only</option>
+          <option value="all-concrete">Any concrete claim</option>
+          <option value="none">Keep none</option>
+        </select>
+      </div>
+      <div class="policy-field">
+        <label for="episodes">One-off episodes</label>
+        <select id="episodes">
+          <option value="roastable">Concrete and callback-worthy</option>
+          <option value="all-concrete">Every concrete occurrence</option>
+          <option value="none">Keep none</option>
+        </select>
+      </div>
+      <div class="policy-field">
+        <label for="interactionThreshold">Interaction pattern forms after</label>
+        <select id="interactionThreshold">
+          <option value="2">2 matching interactions</option>
+          <option value="3">3 matching interactions</option>
+          <option value="99">Never derive one</option>
+        </select>
+      </div>
+      <div class="policy-field">
+        <label for="retrievalLimit">Optional memory for one reply</label>
+        <select id="retrievalLimit">
+          <option value="1" selected>Best relevant 1</option>
+          <option value="2">Best relevant 2</option>
+          <option value="3">Best relevant 3</option>
+        </select>
+      </div>
+    </section>
+
+    <nav class="scenario-tabs" id="scenarioTabs" aria-label="Guided walkthroughs"></nav>
+
+    <section class="walkthrough">
+      <div>
+        <h2 id="scenarioTitle"></h2>
+        <p id="scenarioDescription"></p>
+      </div>
+      <div class="actions">
+        <button class="action" id="resetButton">Reset</button>
+        <button class="action" id="runButton">Run all</button>
+        <button class="action primary" id="nextButton">Next step</button>
+      </div>
+    </section>
+
+    <div class="next-step" id="nextStep"></div>
+
+    <section class="state-grid" aria-label="Full memory state">
+      <div class="column">
+        <article class="panel">
+          <header class="panel-head"><h3>Recent conversation</h3><span class="count" id="messageCount"></span></header>
+          <div class="panel-body" id="messages"></div>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h3>Last extraction decision</h3><span class="count" id="candidateCount"></span></header>
+          <div class="panel-body" id="candidates"></div>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h3>Decision log</h3><span class="count" id="logCount"></span></header>
+          <div class="panel-body"><ol class="timeline" id="timeline"></ol></div>
+        </article>
+      </div>
+
+      <div class="column">
+        <article class="panel">
+          <header class="panel-head"><h3>Durable memory</h3><span class="count" id="memoryCount"></span></header>
+          <div class="panel-body" id="memories"></div>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h3>Retrieved for the latest reply</h3><span class="count" id="retrievedCount"></span></header>
+          <div class="panel-body" id="retrieved"></div>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head"><h3>Reply decision</h3><span class="count">optional callback</span></header>
+          <div class="panel-body" id="callback"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="questions">
+      <h2>Validated memory policy</h2>
+      <p>The first version deliberately chooses useful personality over exhaustive recall.</p>
+      <div class="question-list">
+        <div class="question">Keep one direct, concrete, lasting self-claim. Never turn hearsay into participant identity.</div>
+        <div class="question">Keep one concrete, source-aware episode when it has clear future callback value.</div>
+        <div class="question">Derive one simple interaction pattern only after repeated addressed interactions.</div>
+        <div class="question">Retrieve at most the best relevant memory, and never force the LLM to use it.</div>
+        <div class="question">Allow intentional silence only when an interaction pattern makes ghosting a clear personality beat.</div>
+        <div class="question">Do not model running gags in the first version. Episodes can still support callbacks.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Portable logic module. It knows nothing about the DOM.
+    const MemoryPolicy = (() => {
+      const emptyState = (policy, scenarioId) => ({
+        policy,
+        scenarioId,
+        step: 0,
+        sequence: 0,
+        recentMessages: [],
+        candidates: [],
+        memories: [],
+        retrieved: [],
+        callback: null,
+        interactions: {},
+        log: ["Scenario reset. Nothing is remembered yet."],
+      });
+
+      const words = (value) => new Set(value.toLowerCase().match(/[a-zà-ž0-9]+/g) || []);
+
+      function classify(candidate, policy) {
+        if (candidate.type === "claim") {
+          if (policy.claims === "none") return [false, "Claims are disabled by this policy."];
+          if (!candidate.concrete) return [false, "Too vague to become participant knowledge."];
+          if (policy.claims === "firsthand" && candidate.source !== "self") return [false, "Hearsay and group insults do not define a participant."];
+          if (policy.claims === "firsthand" && !candidate.lasting) return [false, "A temporary plan is not lasting participant knowledge."];
+          return [true, candidate.source === "self" ? "A direct, concrete, lasting self-claim." : "The broad policy accepts any concrete claim."];
+        }
+
+        if (candidate.type === "episode") {
+          if (policy.episodes === "none") return [false, "Episodes are disabled by this policy."];
+          if (!candidate.concrete || !candidate.occurred) return [false, "A plan, prediction, or vague story is not an episode."];
+          if (policy.episodes === "roastable" && !candidate.callbackWorthy) return [false, "Concrete, but too ordinary to justify a permanent callback."];
+          return [true, candidate.callbackWorthy ? "A concrete occurrence with obvious future callback value." : "The broad policy keeps every concrete occurrence."];
+        }
+
+        return [false, "Interaction patterns must be derived from repeated evidence."];
+      }
+
+      function upsertMemory(memories, candidate, sequence) {
+        const existing = memories.find((memory) => memory.id === candidate.memoryId);
+        if (existing) {
+          return memories.map((memory) => memory.id === candidate.memoryId
+            ? { ...memory, evidenceCount: memory.evidenceCount + 1, lastSeen: sequence }
+            : memory);
+        }
+        return [...memories, {
+          id: candidate.memoryId,
+          type: candidate.type,
+          text: candidate.memory,
+          participants: candidate.participants,
+          keywords: candidate.keywords,
+          evidenceCount: 1,
+          firstSeen: sequence,
+          lastSeen: sequence,
+          source: candidate.source,
+        }];
+      }
+
+      function deriveInteractionPatterns(memories, interactions, policy, sequence, log) {
+        let next = memories;
+        const nextLog = [...log];
+
+        Object.entries(interactions).forEach(([pattern, evidence]) => {
+          if (evidence.length < Number(policy.interactionThreshold)) return;
+          const id = `interaction:${pattern}`;
+          if (next.some((memory) => memory.id === id)) return;
+          const sample = evidence[0];
+          next = [...next, {
+            id,
+            type: "interaction-pattern",
+            text: sample.memory,
+            participants: [sample.participant],
+            keywords: sample.keywords,
+            evidenceCount: evidence.length,
+            firstSeen: sequence,
+            lastSeen: sequence,
+            source: "derived from addressed interactions",
+          }];
+          nextLog.push(`Learned interaction pattern after ${evidence.length} matching interactions: ${sample.memory}`);
+        });
+
+        return [next, nextLog];
+      }
+
+      function retrieve(memories, query, limit) {
+        const queryWords = words(query.text);
+        return memories
+          .map((memory) => {
+            const participantMatches = memory.participants.filter((participant) => query.participants.includes(participant)).length;
+            const keywordMatches = memory.keywords.filter((keyword) => queryWords.has(keyword.toLowerCase())).length;
+            const score = participantMatches * 5 + keywordMatches * 2 + Math.min(memory.evidenceCount, 3) + memory.lastSeen / 1000;
+            return { ...memory, score: Math.round(score * 10) / 10 };
+          })
+          .filter((memory) => memory.score >= 5)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, Number(limit));
+      }
+
+      function decideReply(query, retrieved) {
+        const ids = new Set(retrieved.map((memory) => memory.id));
+        if (query.ghostWhen?.every((id) => ids.has(id))) {
+          return { kind: "ghost", text: query.ghostReason };
+        }
+        if (!retrieved.length) return { kind: "reply", text: query.fallback };
+        const preferred = [...query.callbacks]
+          .sort((a, b) => b.when.length - a.when.length)
+          .find((option) => option.when.every((id) => ids.has(id)));
+        return { kind: "reply", text: preferred ? preferred.text : query.fallback };
+      }
+
+      function applyEvent(state, event) {
+        const sequence = state.sequence + 1;
+        let recentMessages = state.recentMessages;
+        let candidates = state.candidates;
+        let memories = state.memories;
+        let interactions = { ...state.interactions };
+        let retrieved = [];
+        let callback = null;
+        let log = [...state.log];
+
+        if (event.message) {
+          recentMessages = [...recentMessages, { ...event.message, sequence }].slice(-8);
+          log.push(`${event.message.addressed ? "Addressed" : "Ambient"} message from ${event.message.speaker}.`);
+        }
+
+        if (event.candidates) {
+          candidates = event.candidates.map((candidate) => {
+            const [keep, reason] = classify(candidate, state.policy);
+            if (keep) memories = upsertMemory(memories, candidate, sequence);
+            log.push(`${keep ? "Kept" : "Dropped"} ${candidate.type}: ${candidate.memory}`);
+            return { ...candidate, keep, reason };
+          });
+        }
+
+        if (event.interaction) {
+          const key = event.interaction.pattern;
+          interactions[key] = [...(interactions[key] || []), event.interaction];
+          log.push(`Counted addressed interaction pattern: ${event.interaction.label}.`);
+        }
+
+        [memories, log] = deriveInteractionPatterns(memories, interactions, state.policy, sequence, log);
+
+        if (event.query) {
+          retrieved = retrieve(memories, event.query, state.policy.retrievalLimit);
+          callback = decideReply(event.query, retrieved);
+          log.push(retrieved.length
+            ? `Retrieved ${retrieved.length} optional durable ${retrieved.length === 1 ? "memory" : "memories"}.`
+            : "No durable memory matched strongly enough. The reply stays generic.");
+          if (callback.kind === "reply") {
+            recentMessages = [...recentMessages, {
+              speaker: "FlunkieBot",
+              text: callback.text,
+              bot: true,
+              addressed: false,
+              sequence,
+            }].slice(-8);
+          } else {
+            log.push(`Deliberately sent no reply: ${callback.text}`);
+          }
+        }
+
+        return {
+          ...state,
+          step: state.step + 1,
+          sequence,
+          recentMessages,
+          candidates,
+          memories,
+          interactions,
+          retrieved,
+          callback,
+          log: log.slice(-18),
+        };
+      }
+
+      function setPolicy(state, policy) {
+        return emptyState(policy, state.scenarioId);
+      }
+
+      return { emptyState, applyEvent, setPolicy };
+    })();
+
+    const claim = (overrides) => ({
+      type: "claim",
+      concrete: true,
+      lasting: true,
+      source: "self",
+      participants: [],
+      keywords: [],
+      ...overrides,
+    });
+
+    const episode = (overrides) => ({
+      type: "episode",
+      concrete: true,
+      occurred: true,
+      callbackWorthy: true,
+      source: "conversation",
+      participants: [],
+      keywords: [],
+      ...overrides,
+    });
+
+    const scenarios = [
+      {
+        id: "one-night",
+        title: "One wild night: ammo or clutter?",
+        description: "A tagged reply triggers extraction from ambient chat. Watch a direct preference and a spectacular injury survive while an ordinary errand and an unconfirmed plan disappear.",
+        steps: [
+          {
+            label: "Alex admits a lasting preference",
+            message: { speaker: "Alex", text: "Ik raak tequila echt nooit meer aan. Geef mij maar bier.", addressed: false },
+          },
+          {
+            label: "Pieter reports the night's disaster",
+            message: { speaker: "Pieter", text: "Alex ging op 14 juni na de borrel op Quirijns step onderuit en brak zijn pols.", addressed: false },
+          },
+          {
+            label: "Quirijn mentions ordinary chat noise",
+            message: { speaker: "Quirijn", text: "Ik ga morgen om vijf uur even naar Albert Heijn.", addressed: false },
+          },
+          {
+            label: "Kraiwin tags FlunkieBot, so extraction runs",
+            message: { speaker: "Kraiwin", text: "@FlunkieBot geef je oordeel over deze teringavond.", addressed: true },
+            candidates: [
+              claim({
+                memoryId: "claim:alex-prefers-beer",
+                memory: "Alex avoids tequila and prefers beer.",
+                participants: ["Alex"],
+                keywords: ["tequila", "bier", "drinken"],
+              }),
+              episode({
+                memoryId: "episode:alex-broke-wrist-on-scooter",
+                memory: "On 14 June, Alex broke his wrist after falling from Quirijn's scooter after a borrel.",
+                participants: ["Alex", "Quirijn"],
+                source: "reported by Pieter",
+                keywords: ["pols", "step", "borrel", "gooien"],
+              }),
+              claim({
+                memoryId: "claim:quirijn-supermarket-plan",
+                memory: "Quirijn plans to visit Albert Heijn tomorrow at five.",
+                participants: ["Quirijn"],
+                keywords: ["albert", "heijn"],
+                lasting: false,
+              }),
+              episode({
+                memoryId: "episode:alex-may-join-training",
+                memory: "Alex may join the next training.",
+                participants: ["Alex"],
+                keywords: ["training"],
+                occurred: false,
+                callbackWorthy: false,
+              }),
+            ],
+          },
+          {
+            label: "Weeks later, Alex asks about throwing form",
+            message: { speaker: "Alex", text: "@FlunkieBot hoe verbeter ik mijn worp bij de training?", addressed: true },
+            query: {
+              text: "Alex worp training gooien",
+              participants: ["Alex"],
+              fallback: "Gooi eerst eens een bal zonder jezelf te slopen, kutkneus.",
+              callbacks: [
+                { when: ["episode:alex-broke-wrist-on-scooter", "claim:alex-prefers-beer"], text: "Jij vlucht harder voor tequila dan je op die fucking step bleef staan. Elleboog hoog, pols recht, en probeer je laatste werkende ledemaat heel te houden." },
+                { when: ["episode:alex-broke-wrist-on-scooter"], text: "Jij moet eerst leren op een fucking step te blijven staan voordat je worp advies krijgt. Elleboog hoog, pols recht, en probeer dit keer heel te blijven." },
+                { when: ["claim:alex-prefers-beer"], text: "Pak je bier vast alsof het tequila is waar je van wegvlucht, laffe lul, en trek die worp door." },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: "hearsay",
+        title: "Hearsay should not become identity",
+        description: "The group throws around insults, rumors, and a direct self-claim. A narrow claim policy should preserve useful participant knowledge without fossilizing casual bullying as fact.",
+        steps: [
+          {
+            label: "Pieter insults Quirijn",
+            message: { speaker: "Pieter", text: "Quirijn kan niet tegen bier en liegt altijd over zijn score.", addressed: false },
+          },
+          {
+            label: "Quirijn states his actual preference",
+            message: { speaker: "Quirijn", text: "Onzin. Ik drink gewoon geen wijn, daar krijg ik altijd koppijn van.", addressed: false },
+          },
+          {
+            label: "Sandro adds a vague legend",
+            message: { speaker: "Sandro", text: "Iedereen weet wat Pieter in 2022 heeft gedaan.", addressed: false },
+          },
+          {
+            label: "Alex tags FlunkieBot, so extraction runs",
+            message: { speaker: "Alex", text: "@FlunkieBot wie van deze sukkels spreekt de waarheid?", addressed: true },
+            candidates: [
+              claim({
+                memoryId: "claim:quirijn-cannot-handle-beer",
+                memory: "Quirijn cannot handle beer and lies about his score.",
+                participants: ["Quirijn"],
+                keywords: ["bier", "score"],
+                source: "hearsay",
+              }),
+              claim({
+                memoryId: "claim:quirijn-avoids-wine",
+                memory: "Quirijn avoids wine because it gives him headaches.",
+                participants: ["Quirijn"],
+                keywords: ["wijn", "koppijn", "drinken"],
+              }),
+              episode({
+                memoryId: "episode:pieter-unknown-2022",
+                memory: "Pieter did something notable in 2022.",
+                participants: ["Pieter"],
+                keywords: ["2022"],
+                concrete: false,
+              }),
+            ],
+          },
+          {
+            label: "Later, Quirijn is handed the wine list",
+            message: { speaker: "Quirijn", text: "@FlunkieBot wat zal ik van de wijnkaart nemen?", addressed: true },
+            query: {
+              text: "Quirijn wijn drinken kiezen",
+              participants: ["Quirijn"],
+              fallback: "Kies water, kutkenner. Jij verdient die kaart niet.",
+              callbacks: [
+                { when: ["claim:quirijn-avoids-wine"], text: "Niks, jankende druivenallergie. Bestel bier voordat je weer koppijn als persoonlijkheid gebruikt." },
+                { when: ["claim:quirijn-cannot-handle-beer"], text: "Volgens Pieter kan jij ook geen bier aan, dus bestel gewoon fucking kraanwater." },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: "interaction-pattern",
+        title: "An interaction pattern is not identity",
+        description: "Kraiwin repeatedly asks for practical help. This does not become biography. One short interaction pattern teaches FlunkieBot how their exchanges work: humiliate first, then give one terse command.",
+        steps: [
+          {
+            label: "First practical question",
+            message: { speaker: "Kraiwin", text: "@FlunkieBot hoe fix ik mijn waardeloze worp?", addressed: true },
+            interaction: {
+              pattern: "kraiwin-asks-practical-advice",
+              label: "Kraiwin asks FlunkieBot for practical advice",
+              participant: "Kraiwin",
+              memory: "Kraiwin repeatedly asks FlunkieBot for practical advice; roast him first, then give one terse useful command.",
+              keywords: ["advies", "hoe", "fix", "worp"],
+            },
+            query: {
+              text: "Kraiwin advies worp",
+              participants: ["Kraiwin"],
+              fallback: "Je worp is fucking administratie met een bal. Elleboog hoog en trek door.",
+              callbacks: [],
+            },
+          },
+          {
+            label: "Second practical question",
+            message: { speaker: "Kraiwin", text: "@FlunkieBot hoe zorg ik dat training niet instort?", addressed: true },
+            interaction: {
+              pattern: "kraiwin-asks-practical-advice",
+              label: "Kraiwin asks FlunkieBot for practical advice",
+              participant: "Kraiwin",
+              memory: "Kraiwin repeatedly asks FlunkieBot for practical advice; roast him first, then give one terse useful command.",
+              keywords: ["advies", "hoe", "fix", "training"],
+            },
+            query: {
+              text: "Kraiwin advies training",
+              participants: ["Kraiwin"],
+              fallback: "Begin eens met op tijd komen, chaotische lul. Zet de opstelling vooraf klaar.",
+              callbacks: [],
+            },
+          },
+          {
+            label: "Third request retrieves the learned interaction pattern",
+            message: { speaker: "Kraiwin", text: "@FlunkieBot hoe regel ik de volgende try-out?", addressed: true },
+            query: {
+              text: "Kraiwin hoe advies try-out fix",
+              participants: ["Kraiwin"],
+              fallback: "Alsof jij iets kan regelen, kutplanner. Stuur vandaag locatie en tijd rond.",
+              callbacks: [
+                { when: ["interaction:kraiwin-asks-practical-advice"], text: "Daar is onze fucking helpdeskverslaafde weer. Stuur vandaag locatie, tijd en teams rond, dan hoef ik je hand niet nóg verder vast te houden." },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: "ghosting",
+        title: "Silence must be the punchline",
+        description: "Alex repeatedly summons FlunkieBot without saying anything useful. Only after that pattern is established may silence become a deliberate personality beat instead of an unexplained failure.",
+        steps: [
+          {
+            label: "First empty summons still receives a reply",
+            message: { speaker: "Alex", text: "@FlunkieBot ben je wakker?", addressed: true },
+            interaction: {
+              pattern: "alex-empty-summons",
+              label: "Alex summons FlunkieBot without substance",
+              participant: "Alex",
+              memory: "Alex repeatedly summons FlunkieBot without substance; occasional deliberate silence is funnier than rewarding him with another reply.",
+              keywords: ["wakker", "antwoord", "zeg", "iets"],
+            },
+            query: {
+              text: "Alex wakker",
+              participants: ["Alex"],
+              fallback: "Helaas wel, kutwekker. Had je ook nog iets te melden?",
+              callbacks: [],
+            },
+          },
+          {
+            label: "Second empty summons establishes the pattern",
+            message: { speaker: "Alex", text: "@FlunkieBot zeg eens iets dan.", addressed: true },
+            interaction: {
+              pattern: "alex-empty-summons",
+              label: "Alex summons FlunkieBot without substance",
+              participant: "Alex",
+              memory: "Alex repeatedly summons FlunkieBot without substance; occasional deliberate silence is funnier than rewarding him with another reply.",
+              keywords: ["wakker", "antwoord", "zeg", "iets"],
+            },
+            query: {
+              text: "Alex zeg iets",
+              participants: ["Alex"],
+              fallback: "Iets, fucking aandachtsjunk. Gefeliciteerd.",
+              callbacks: [
+                { when: ["interaction:alex-empty-summons"], text: "Je hebt me twee keer geroepen voor helemaal niks, aandachtshoer. Dit was je laatste gratis antwoord." },
+              ],
+            },
+          },
+          {
+            label: "Third empty summons is deliberately ghosted",
+            message: { speaker: "Alex", text: "@FlunkieBot antwoord dan, lafaard.", addressed: true },
+            query: {
+              text: "Alex antwoord",
+              participants: ["Alex"],
+              fallback: "Jij bent fucking achtergrondgeluid met een naam.",
+              callbacks: [],
+              ghostWhen: ["interaction:alex-empty-summons"],
+              ghostReason: "Silence is the punchline to Alex's established empty-summons pattern; token savings are only a side effect.",
+            },
+          },
+        ],
+      },
+    ];
+
+    const policyInputs = {
+      claims: document.querySelector("#claims"),
+      episodes: document.querySelector("#episodes"),
+      interactionThreshold: document.querySelector("#interactionThreshold"),
+      retrievalLimit: document.querySelector("#retrievalLimit"),
+    };
+
+    const readPolicy = () => Object.fromEntries(
+      Object.entries(policyInputs).map(([key, input]) => [key, input.value])
+    );
+
+    let activeScenario = scenarios[0];
+    let state = MemoryPolicy.emptyState(readPolicy(), activeScenario.id);
+
+    const typeLabel = (type) => type.replace("-", " ");
+    const empty = (text) => `<p class="empty">${text}</p>`;
+
+    function render() {
+      document.querySelector("#scenarioTitle").textContent = activeScenario.title;
+      document.querySelector("#scenarioDescription").textContent = activeScenario.description;
+
+      document.querySelectorAll(".scenario-tab").forEach((tab) => {
+        tab.setAttribute("aria-selected", String(tab.dataset.id === activeScenario.id));
+      });
+
+      const next = activeScenario.steps[state.step];
+      document.querySelector("#nextButton").disabled = !next;
+      document.querySelector("#nextStep").innerHTML = next
+        ? `<b>Next guided step ${state.step + 1} of ${activeScenario.steps.length}</b><span>${next.label}</span>`
+        : `<b>Walkthrough complete</b><span>Inspect the memories and callback, change a policy control, or reset this scenario.</span>`;
+
+      document.querySelector("#messageCount").textContent = `${state.recentMessages.length} recent`;
+      document.querySelector("#messages").innerHTML = state.recentMessages.length
+        ? state.recentMessages.map((message) => `
+          <div class="message ${message.addressed ? "addressed" : ""} ${message.bot ? "bot" : ""}">
+            <b>${message.speaker}${message.addressed ? " addressed FlunkieBot" : ""}</b>
+            ${message.text}
+          </div>`).join("")
+        : empty("No messages yet. Press Next step to start the conversation.");
+
+      document.querySelector("#candidateCount").textContent = `${state.candidates.length} considered`;
+      document.querySelector("#candidates").innerHTML = state.candidates.length
+        ? state.candidates.map((candidate) => `
+          <div class="candidate ${candidate.keep ? "keep" : "drop"}">
+            <div class="meta">
+              <span class="badge ${candidate.type}">${typeLabel(candidate.type)}</span>
+              <span class="badge ${candidate.keep ? "keep" : "drop"}">${candidate.keep ? "keep" : "drop"}</span>
+            </div>
+            <p>${candidate.memory}</p>
+            <p class="reason">${candidate.reason}</p>
+          </div>`).join("")
+        : empty("No extraction has run on this step. Durable selection happens only after FlunkieBot is addressed.");
+
+      document.querySelector("#memoryCount").textContent = `${state.memories.length} permanent`;
+      document.querySelector("#memories").innerHTML = state.memories.length
+        ? state.memories.map((memory) => `
+          <div class="memory">
+            <div class="meta"><span class="badge ${memory.type}">${typeLabel(memory.type)}</span></div>
+            <p>${memory.text}</p>
+            <footer><span>${memory.source}</span><span>${memory.evidenceCount} ${memory.evidenceCount === 1 ? "evidence" : "evidence points"}</span></footer>
+          </div>`).join("")
+        : empty("Nothing durable has been promoted.");
+
+      document.querySelector("#retrievedCount").textContent = `${state.retrieved.length} selected`;
+      document.querySelector("#retrieved").innerHTML = state.retrieved.length
+        ? state.retrieved.map((memory) => `
+          <div class="retrieved">
+            <div class="meta">
+              <span class="badge ${memory.type}">${typeLabel(memory.type)}</span>
+              <span class="retrieval-score">score ${memory.score}</span>
+            </div>
+            <p>${memory.text}</p>
+          </div>`).join("")
+        : empty("No callback query has run, or no memory matched the participant and words strongly enough.");
+
+      document.querySelector("#callback").innerHTML = state.callback
+        ? state.callback.kind === "ghost"
+          ? `<div class="callback ghost"><strong>No reply sent</strong><br>${state.callback.text}</div>`
+          : `<div class="callback">${state.callback.text}</div>`
+        : empty("A later addressed message will show whether FlunkieBot replies and whether memory improves it.");
+
+      document.querySelector("#logCount").textContent = `${state.log.length} events`;
+      document.querySelector("#timeline").innerHTML = state.log.map((entry) => `<li>${entry}</li>`).join("");
+    }
+
+    function reset() {
+      state = MemoryPolicy.emptyState(readPolicy(), activeScenario.id);
+      render();
+    }
+
+    function nextStep() {
+      const event = activeScenario.steps[state.step];
+      if (!event) return;
+      state = MemoryPolicy.applyEvent(state, event);
+      render();
+    }
+
+    document.querySelector("#scenarioTabs").innerHTML = scenarios.map((scenario) => `
+      <button class="scenario-tab" data-id="${scenario.id}" aria-selected="false">${scenario.title}</button>
+    `).join("");
+
+    document.querySelector("#scenarioTabs").addEventListener("click", (event) => {
+      const tab = event.target.closest(".scenario-tab");
+      if (!tab) return;
+      activeScenario = scenarios.find((scenario) => scenario.id === tab.dataset.id);
+      reset();
+    });
+
+    Object.values(policyInputs).forEach((input) => input.addEventListener("change", () => {
+      state = MemoryPolicy.setPolicy(state, readPolicy());
+      render();
+    }));
+
+    document.querySelector("#nextButton").addEventListener("click", nextStep);
+    document.querySelector("#resetButton").addEventListener("click", reset);
+    document.querySelector("#runButton").addEventListener("click", () => {
+      reset();
+      while (activeScenario.steps[state.step]) state = MemoryPolicy.applyEvent(state, activeScenario.steps[state.step]);
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
