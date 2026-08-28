@@ -41,6 +41,36 @@ const TRUST_AND_OUTPUT_RULES = [
 // parsing are owned together and can never drift apart.
 const BUBBLE_MARKER = '|||';
 
+// Section 6: per-request format instruction. The model cannot truly randomize,
+// so we randomize here and give it a concrete target each time. This overrides
+// the general variation guidance in the personality prompt.
+const FORMAT_OPTIONS = [
+  { weight: 8,  text: 'Antwoord met precies 1 woord. Niets meer.' },
+  { weight: 5,  text: 'Antwoord met precies 1 emoji. Niets meer.' },
+  { weight: 10, text: 'Antwoord met een paar losse woorden. Geen volledige zin.' },
+  { weight: 12, text: 'Antwoord met precies 1 korte zin.' },
+  { weight: 10, text: 'Antwoord met precies 1 zin en 1 emoji los erna, gescheiden door |||.' },
+  { weight: 20, text: 'Antwoord met precies 2 losse berichten. Gebruik ||| om te splitsen.' },
+  { weight: 18, text: 'Antwoord met precies 3 losse berichten. Gebruik ||| om te splitsen.' },
+  { weight: 10, text: 'Antwoord met precies 4 losse berichten. Gebruik ||| om te splitsen.' },
+  { weight: 7,  text: 'Antwoord met 5 of meer losse berichten. Gebruik ||| om te splitsen.' },
+];
+
+const FORMAT_TOTAL_WEIGHT = FORMAT_OPTIONS.reduce((s, o) => s + o.weight, 0);
+
+function pickFormatInstruction() {
+  let r = Math.random() * FORMAT_TOTAL_WEIGHT;
+  for (const option of FORMAT_OPTIONS) {
+    r -= option.weight;
+    if (r <= 0) return option.text;
+  }
+  return FORMAT_OPTIONS[FORMAT_OPTIONS.length - 1].text;
+}
+
+function formatDirective() {
+  return `# FORMAT (volg dit exact voor deze reactie)\n${pickFormatInstruction()}`;
+}
+
 function deliveryRules(gifsEnabled) {
   if (!gifsEnabled) return null;
 
@@ -61,7 +91,7 @@ function deliveryRules(gifsEnabled) {
  * dynamic context budget.
  */
 export function buildSystemInstruction(personality, { gifsEnabled = false } = {}) {
-  return [personality.trim(), MEMORY_RULES, TRUST_AND_OUTPUT_RULES, deliveryRules(gifsEnabled)]
+  return [personality.trim(), MEMORY_RULES, TRUST_AND_OUTPUT_RULES, deliveryRules(gifsEnabled), formatDirective()]
     .filter(Boolean)
     .join('\n\n');
 }
