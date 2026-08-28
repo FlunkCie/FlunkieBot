@@ -12,6 +12,7 @@ See [CONTEXT.md](CONTEXT.md) for the domain model and the exact vocabulary this 
 - **Participant identity**: a participant is recognized across conversations through evidence-backed WhatsApp aliases, never through guesses based on digits, names, group membership, or timing.
 - **Callbacks**: at most one sufficiently relevant durable memory is retrieved per reply, and FlunkieBot may weaponize it, or ignore it when the current conversation offers a better joke.
 - **Intentional silence**: after being addressed, FlunkieBot stays silent only when a retrieved interaction pattern makes silence itself the joke. That is recorded distinctly from a failed reply.
+- **Unprompted messages**: off by default. Once switched on, FlunkieBot may open a conversation himself, only with people who already started a direct-message thread with him, and bounded by a budget rather than by the occasion. See [Unprompted messages](#unprompted-messages).
 - **Fixed failure notification**: if every reply provider fails, FlunkieBot sends one fixed in-character notification so an outage stays visible instead of looking like ghosting.
 - **Multi-provider fallback**: tries Groq, then OpenRouter, then Gemini for replies (configurable). A rate-limited, erroring, truncated, refused, or empty response falls through to the next provider, retrying the whole chain a bounded number of times.
 - **Natural delivery**: a reply is sent the way a person texts, split into a few short bubbles with "typing..." pauses in between. With a GIPHY key configured, FlunkieBot may send a reaction GIF instead of a bubble of text; without one it is never told GIFs exist.
@@ -121,6 +122,7 @@ The stop rule is a technical mitigation rather than politeness.
 WhatsApp is testing a monthly limit on messages that receive no reply, which applies to personal accounts too, and messages that do get a reply are explicitly excluded from it.
 Combined with the fact that the only realistic way to lose the number here is a human blocking or reporting the bot, the annoyance threshold and the ban threshold are the same threshold.
 
+Every unprompted message that actually went out is recorded permanently in the same SQLite database, including whether it was ever answered; the budget, the stop rule and memory reuse are all enforced from that record.
 An unprompted message never uses the same durable memory twice, and ripeness is measured from the moment a memory was stored, never from the occurrence time the model supplied for it: that field is often missing or wrong.
 A prank is a tone rather than an occasion of its own, and is handled in the prompt.
 The send itself runs in the queue of the *recipient*, so an unprompted message can never cut in front of a message arriving from that same person, and it goes out through the same composing-presence and typing pacing as every other reply.

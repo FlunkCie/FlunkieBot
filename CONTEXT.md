@@ -49,7 +49,8 @@ It is bounded by a budget rather than by its occasion, and every one that was ac
 _Avoid_: Notification, broadcast, nudge campaign
 
 **Occasion**:
-The reason an initiative exists at this moment: someone being discussed while absent, or a durable memory that has become ripe.
+The reason an initiative exists at this moment: someone being discussed in a group while absent, or a durable memory that has become ripe.
+A name dropped in a one-on-one thread is a private remark and is never an occasion.
 An occasion only ever selects which moment is taken; it never decides how many initiatives are sent.
 _Avoid_: Trigger, event
 

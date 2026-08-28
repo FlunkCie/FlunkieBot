@@ -1,4 +1,4 @@
-// Scenarios 59-71 and 73 (72 is the migration, in database.test.js). Unprompted
+// Scenarios 59-71 and 73-75 (72 is the migration, in database.test.js). Unprompted
 // personal messages, verified end to end through
 // chat orchestration with a fake WhatsApp sender, real file-backed memory and
 // reply generation backed by fake providers, exactly like the addressed-turn
@@ -12,6 +12,7 @@ import { createChatFixture } from './helpers/chat-fixture.js';
 import { incoming } from './helpers/messages.js';
 
 const GROUP = 'flunkcie@g.us';
+const SECOND_GROUP = 'bierclub@g.us';
 
 const ALEX = { label: 'Alex', alias: { kind: 'phone', value: '31600000001@s.whatsapp.net' } };
 const QUIRIJN = { label: 'Quirijn', alias: { kind: 'phone', value: '31600000002@s.whatsapp.net' } };
@@ -47,11 +48,11 @@ function dm(person, id, text = 'hoi flunkie') {
   });
 }
 
-function groupMessage(person, id, text, { addressed = true } = {}) {
+function groupMessage(person, id, text, { addressed = true, address = GROUP } = {}) {
   return incoming({
-    address: GROUP,
+    address,
     kind: 'group',
-    conversationLabel: 'FlunkCie',
+    conversationLabel: address === GROUP ? 'FlunkCie' : 'Bierclub',
     id,
     text,
     addressed,
@@ -502,4 +503,113 @@ test('73. never treats a name dropped in a one-on-one thread as being discussed 
   assert.equal(initiatives.length, 1);
   assert.equal(initiatives[0].occasion, 'discussed-while-absent');
   assert.equal(fixture.sender.sent.at(-1).conversationAddress, ALEX.alias.value);
+});
+
+test('74. never lets two turns finishing at the same time spend the same weekly slot', async (t) => {
+  const clock = localClock();
+  const fixture = createChatFixture({ clock, initiative: { mode: 'dm-only', weeklyCap: 1 } });
+  t.after(() => fixture.memory.close());
+
+  await fixture.chat.handleMessage(dm(ALEX, 'A-DM-1'));
+  await fixture.chat.handleMessage(dm(SANNE, 'S-DM-1'));
+
+  clock.advance(2 * DAY_MS);
+
+  // The first unprompted message is selected and then held at the provider, so
+  // the second turn asks for one while nothing has been recorded yet.
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  fixture.setInitiativeReply(async (request, call) => {
+    if (call === 1) await held;
+    return { text: 'POKE' };
+  });
+
+  const inGroup = fixture.chat.handleMessage(groupMessage(QUIRIJN, 'Q-G-1', 'waar is Alex, bot'));
+  await waitFor(
+    () => fixture.initiativeRequests.length === 1,
+    'the first unprompted message reaches the provider'
+  );
+
+  const inOtherGroup = await fixture.chat.handleMessage(
+    groupMessage(TIJMEN, 'T-G2-1', 'en waar is Sanne, bot', { address: SECOND_GROUP })
+  );
+  await inOtherGroup?.background;
+  assert.equal(
+    fixture.initiativeRequests.length,
+    1,
+    'a selected-but-unsent message already holds the weekly slot'
+  );
+
+  release();
+  await (await inGroup)?.background;
+  assert.equal(fixture.memory.inspect.initiatives().length, 1, 'the weekly cap of one binds');
+  assert.equal(fixture.sender.sent.filter((message) => message.text === 'POKE').length, 1);
+});
+
+test('75. never lets two turns finishing at the same time spend the same durable memory', async (t) => {
+  const clock = localClock();
+  const fixture = createChatFixture({ clock, initiative: DM_ONLY });
+  t.after(() => fixture.memory.close());
+
+  await fixture.chat.handleMessage(dm(ALEX, 'A-DM-1'));
+  await fixture.chat.handleMessage(dm(SANNE, 'S-DM-1'));
+
+  // One episode about both of them, so a single memory could be spent on two
+  // different recipients if reservations did not hold it.
+  fixture.setExtraction((packet) => {
+    const trigger = packet.messages.find((message) => message.handle === packet.trigger);
+    const authors = [...new Set(packet.messages.map((message) => message.author).filter(Boolean))];
+    return {
+      memories: [
+        {
+          category: 'episode',
+          text: 'Sloopten samen het Cooldown Cafe',
+          subject: null,
+          reporter: trigger.author,
+          involved: authors,
+          occurredAt: null,
+          evidence: [{ message: trigger.handle, excerpt: trigger.text.slice(0, 24) }],
+        },
+      ],
+    };
+  });
+  await fixture.chat.handleMessage(
+    groupMessage(ALEX, 'A-G-1', 'wij sloopten het Cooldown Cafe', { addressed: false })
+  );
+  await fixture.chat.handleMessage(groupMessage(SANNE, 'S-G-1', 'ja bot, wij allebei'));
+  fixture.setExtraction({ memories: [] });
+  assert.equal(fixture.memory.inspect.episodeParticipants().length, 2, 'one episode, two people');
+
+  clock.advance(15 * DAY_MS);
+
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  fixture.setInitiativeReply(async (request, call) => {
+    if (call === 1) await held;
+    return { text: 'POKE' };
+  });
+
+  const quirijnTurn = fixture.chat.handleMessage(dm(QUIRIJN, 'Q-DM-1', 'yo'));
+  await waitFor(
+    () => fixture.initiativeRequests.length === 1,
+    'the first unprompted message reaches the provider'
+  );
+
+  const tijmenTurn = await fixture.chat.handleMessage(dm(TIJMEN, 'T-DM-1', 'yo'));
+  await tijmenTurn?.background;
+  assert.equal(
+    fixture.initiativeRequests.length,
+    1,
+    'the callback is already spoken for, even though nothing is recorded yet'
+  );
+
+  release();
+  await (await quirijnTurn)?.background;
+  const initiatives = fixture.memory.inspect.initiatives();
+  assert.equal(initiatives.length, 1);
+  assert.equal(initiatives[0].occasion, 'ripe-episode');
 });
