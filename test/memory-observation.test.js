@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemory } from '../memory/index.js';
+import { extractText, normalizeEnvelope } from '../whatsapp.js';
 import { temporaryDatabasePath } from './helpers/temp-database.js';
 import { createClock } from './helpers/clock.js';
 import { observation } from './helpers/messages.js';
@@ -55,8 +56,26 @@ test('7. observes supported text, image captions and video captions', async (t) 
   const memory = newMemory(clock);
   t.after(() => memory.close());
 
-  // Chat orchestration normalizes every supported format into the same
-  // provider-neutral text, so the memory module stores all three identically.
+  // Chat orchestration normalizes text, image captions and video captions into
+  // the same provider-neutral text before observation.
+  assert.equal(extractText({ conversation: 'gewone tekst' }), 'gewone tekst');
+  assert.equal(extractText({ extendedTextMessage: { text: 'getagde tekst' } }), 'getagde tekst');
+  assert.equal(extractText({ imageMessage: { caption: 'onderschrift bij foto' } }), 'onderschrift bij foto');
+  assert.equal(extractText({ videoMessage: { caption: 'onderschrift bij video' } }), 'onderschrift bij video');
+  assert.equal(extractText({ audioMessage: {} }), null, 'unsupported formats contribute no context');
+
+  const normalized = normalizeEnvelope(
+    {
+      key: { remoteJid: '31600000001@s.whatsapp.net', id: 'CAP-1' },
+      message: { imageMessage: { caption: 'onderschrift bij foto' } },
+      pushName: 'Alex',
+    },
+    { botJids: new Set(), now: 1 }
+  );
+  assert.equal(normalized.text, 'onderschrift bij foto');
+  assert.equal(normalized.addressed, true, 'a direct message always addresses FlunkieBot');
+
+  // The memory module stores all three identically.
   const plain = await memory.observeMessage(observation({ id: 'T-1', text: 'gewone tekst' }));
   const imageCaption = await memory.observeMessage(observation({ id: 'T-2', text: 'onderschrift bij foto' }));
   const videoCaption = await memory.observeMessage(observation({ id: 'T-3', text: 'onderschrift bij video' }));
