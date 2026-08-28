@@ -41,6 +41,7 @@ A WhatsApp bot built on [Baileys](https://github.com/WhiskeySockets/Baileys) tha
    | `GROQ_MODEL`          | no           | `openai/gpt-oss-120b`             | Groq model to use                                             |
    | `OPENROUTER_API_KEY`  | one of three | —                                 | Enables the OpenRouter provider                              |
    | `OPENROUTER_MODEL`    | no           | `minimax/minimax-m3:free`         | OpenRouter model to use                                       |
+   | `GIPHY_API_KEY`       | no           | —                                 | Enables the bot sending reaction GIFs. Free key at https://developers.giphy.com |
    | `LLM_PROVIDER_ORDER`  | no           | `groq,openrouter,gemini`          | Comma-separated fallback order (quality-first); unconfigured providers are skipped |
    | `LLM_RETRY_PASSES`    | no           | `2`                               | If every provider fails in one pass, retry the whole chain this many times |
    | `LLM_RETRY_DELAY_MS`  | no           | `5000`                            | Delay in ms between retry passes                             |

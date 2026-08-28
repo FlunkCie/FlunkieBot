@@ -10,6 +10,7 @@ import { askLLM } from './llm.js';
 import { getHistory, appendHistory } from './history.js';
 import { logger, baileysLogger } from './logger.js';
 import { acquireLock, releaseLock } from './lock.js';
+import { sendNaturally } from './chat.js';
 
 const MAX_RECONNECT_DELAY_MS = 60_000;
 let reconnectAttempts = 0;
@@ -99,11 +100,7 @@ async function handleMessage(sock, msg) {
     appendHistory(jid, 'assistant', reply);
     // Quoting only matters in groups, where it ties the reply to the message
     // that mentioned the bot. In a 1:1 chat it's just noise.
-    await sock.sendMessage(
-      jid,
-      { text: reply, linkPreview: null },
-      isGroup ? { quoted: msg } : undefined
-    );
+    await sendNaturally(sock, jid, reply, { quoted: isGroup ? msg : undefined });
   } catch (err) {
     logger.error({ err, jid }, 'Failed to get/send LLM reply');
     try {
