@@ -54,11 +54,11 @@ function deliveryRules(gifsEnabled) {
 }
 
 /**
- * Assembles the system instruction: hand-authored identity, fixed lore, voice
- * and delivery/bubble-splitting rules, then code-owned memory-use rules,
- * trust and output rules, and (only when configured) the GIF delivery
- * protocol, in that order. The permanent system instruction is outside the
- * dynamic context budget.
+ * Assembles the system instruction: hand-authored identity, fixed lore, voice,
+ * comic registers and delivery/bubble-splitting rules, then code-owned
+ * memory-use rules, trust and output rules, and (only when configured) the GIF
+ * delivery protocol, in that order. The permanent system instruction is outside
+ * the dynamic context budget.
  */
 export function buildSystemInstruction(personality, { gifsEnabled = false } = {}) {
   return [personality.trim(), MEMORY_RULES, TRUST_AND_OUTPUT_RULES, deliveryRules(gifsEnabled)]
