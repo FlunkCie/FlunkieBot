@@ -20,7 +20,7 @@ See [CONTEXT.md](CONTEXT.md) for the domain model and the exact vocabulary this 
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22+ (required by `better-sqlite3` and by the glob patterns the test script passes to `node --test`)
 - At least one LLM provider API key (any combination works):
   - [Gemini API key](https://aistudio.google.com/apikey)
   - [Groq API key](https://console.groq.com/keys)
@@ -145,6 +145,7 @@ Whether FlunkieBot is actually funny stays a manual judgement in real conversati
 | `memory/retrieval.js`         | Deterministic keyword-and-recency retrieval                                               |
 | `memory/extraction.js`        | Extraction packets, validation pipeline and atomic batch writes                           |
 | `memory/extraction-schema.js` | The code-owned extraction JSON Schema and its validator                                   |
+| `memory/text.js`              | Deterministic text normalization shared by retrieval and durable-memory keys              |
 | `reply/index.js`              | Reply generation: one operation returning a reply or intentional silence                  |
 | `reply/prompt-assembly.js`    | Internal prompt assembly, context budgets and the output protocol                         |
 | `provider-fallback.js`        | Bounded provider fallback shared by reply generation and extraction                       |
