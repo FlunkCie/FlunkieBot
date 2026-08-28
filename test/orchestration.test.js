@@ -371,6 +371,46 @@ test('extraction never delays the next message in the same conversation', async 
   assert.equal(fixture.memory.inspect.pendingRuns().length, 0, 'the released extraction still completes');
 });
 
+// Supplementary coverage: the freed queue slot only stays safe while the turn
+// outcome is committed before the turn yields to extraction. A replay arriving
+// mid-extraction must therefore still find a finished turn and be skipped.
+test('a replay arriving while extraction is in flight finds a committed outcome', async (t) => {
+  const clock = createClock();
+  const fixture = createChatFixture({ clock });
+  t.after(() => fixture.memory.close());
+
+  let releaseExtraction;
+  const blocked = new Promise((resolve) => {
+    releaseExtraction = () => resolve({ memories: [] });
+  });
+  let extractions = 0;
+  fixture.setExtraction(() => {
+    extractions += 1;
+    return extractions === 1 ? blocked : { memories: [] };
+  });
+
+  // A reconnect replays the same envelope, so the replay takes the queue slot
+  // the moment the first turn releases it and its extraction is still running.
+  const envelope = incoming({ id: 'RC-1', text: 'hoi' });
+  const first = fixture.chat.handleMessage(envelope);
+  const replay = fixture.chat.handleMessage(envelope);
+
+  await replay;
+
+  assert.equal(
+    fixture.memory.inspect.turnOutcomes().length,
+    1,
+    'the outcome is committed before the queue slot is released'
+  );
+  assert.equal(fixture.sender.sent.length, 1, 'a replay during extraction never produces a second reply');
+  assert.equal(fixture.memory.inspect.turnOutcomes().length, 1, 'no second turn outcome');
+  assert.equal(extractions, 1, 'no duplicated extraction work');
+
+  releaseExtraction();
+  await first;
+  assert.equal(fixture.memory.inspect.pendingRuns().length, 0);
+});
+
 // Supplementary coverage: one sender outlives every reconnect, so the chat and
 // its per-conversation queues can too.
 test('the sender keeps writing to the current connection across a reconnect', async () => {

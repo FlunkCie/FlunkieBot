@@ -11,7 +11,11 @@ import {
   DEFAULT_REPLY_PROVIDER_ORDER,
   DEFAULT_EXTRACTION_PROVIDER_ORDER,
 } from '../providers/index.js';
-import { EXTRACTION_SCHEMA, EXTRACTION_SCHEMA_NAME } from '../memory/extraction-schema.js';
+import {
+  EXTRACTION_SCHEMA,
+  EXTRACTION_SCHEMA_NAME,
+  STRICT_EXTRACTION_SCHEMA,
+} from '../memory/extraction-schema.js';
 import { createReplyGeneration } from '../reply/index.js';
 import { failingProvider } from './helpers/fake-providers.js';
 
@@ -48,7 +52,12 @@ const textRequest = Object.freeze({
 const structuredRequest = Object.freeze({
   systemInstruction: 'EXTRACTIE',
   messages: Object.freeze([Object.freeze({ role: 'user', content: 'CONVERSATION_DATA\n{}' })]),
-  output: Object.freeze({ kind: 'structured', name: EXTRACTION_SCHEMA_NAME, schema: EXTRACTION_SCHEMA }),
+  output: Object.freeze({
+    kind: 'structured',
+    name: EXTRACTION_SCHEMA_NAME,
+    schema: EXTRACTION_SCHEMA,
+    strictSchema: STRICT_EXTRACTION_SCHEMA,
+  }),
 });
 
 const groqOk = jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: 'Kanker goed.' } }] });
@@ -107,7 +116,15 @@ test('40. configures strict schema output for Groq extraction', async () => {
   assert.equal(format.type, 'json_schema');
   assert.equal(format.json_schema.strict, true);
   assert.equal(format.json_schema.name, EXTRACTION_SCHEMA_NAME);
-  assert.deepEqual(format.json_schema.schema, EXTRACTION_SCHEMA);
+  // Strict mode rejects the counting and length keywords, so this route carries
+  // the strict-safe projection of the same code-owned schema.
+  assert.deepEqual(format.json_schema.schema, STRICT_EXTRACTION_SCHEMA);
+  for (const keyword of ['maxItems', 'minItems', 'maxLength']) {
+    assert.ok(
+      !JSON.stringify(format.json_schema.schema).includes(keyword),
+      `strict schema output still carries "${keyword}"`
+    );
+  }
 });
 
 test('41. configures supported schema output for Gemini extraction', async () => {
@@ -140,9 +157,11 @@ test('42. configures OpenRouter JSON Object Mode with required parameter support
   const body = fetchImpl.calls[0].body;
   assert.deepEqual(body.response_format, { type: 'json_object' });
   assert.deepEqual(body.provider, { require_parameters: true });
-  // The free route has no schema enforcement, so the schema travels in the
-  // instructions; local validation still decides what is acceptable.
+  // The free route has no schema enforcement, so the full schema travels in the
+  // instructions, length and cardinality bounds included; local validation still
+  // decides what is acceptable.
   assert.ok(body.messages[0].content.includes(JSON.stringify(EXTRACTION_SCHEMA)));
+  assert.ok(body.messages[0].content.includes('maxLength'));
   assert.ok(body.messages[0].content.startsWith('EXTRACTIE'));
 });
 

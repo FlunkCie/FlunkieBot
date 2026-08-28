@@ -19,11 +19,17 @@ export function createGroqProvider({ apiKey, model = DEFAULT_MODEL, fetchImpl = 
         ],
       };
 
-      // Groq supports strict JSON Schema output, the strongest mode available here.
+      // Groq supports strict JSON Schema output, the strongest mode available
+      // here. Strict mode accepts only a core keyword subset, so the request's
+      // strict-safe schema is preferred where it carries one.
       if (request.output.kind === 'structured') {
         body.response_format = {
           type: 'json_schema',
-          json_schema: { name: request.output.name, strict: true, schema: request.output.schema },
+          json_schema: {
+            name: request.output.name,
+            strict: true,
+            schema: request.output.strictSchema ?? request.output.schema,
+          },
         };
       }
 

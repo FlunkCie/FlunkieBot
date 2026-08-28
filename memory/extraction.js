@@ -1,6 +1,7 @@
 import {
+  EXTRACTION_SCHEMA,
   EXTRACTION_SCHEMA_NAME,
-  PROVIDER_EXTRACTION_SCHEMA,
+  STRICT_EXTRACTION_SCHEMA,
   validateAgainstSchema,
   CLAIM_TEXT_LIMIT,
   EPISODE_TEXT_LIMIT,
@@ -419,10 +420,13 @@ export function buildExtractionRequest(packet) {
         content: `CONVERSATION_DATA\n${JSON.stringify(packet.payload)}`,
       }),
     ]),
+    // `schema` is the code-owned schema itself; `strictSchema` is the same
+    // schema without the keywords strict structured-output modes reject.
     output: Object.freeze({
       kind: 'structured',
       name: EXTRACTION_SCHEMA_NAME,
-      schema: PROVIDER_EXTRACTION_SCHEMA,
+      schema: EXTRACTION_SCHEMA,
+      strictSchema: STRICT_EXTRACTION_SCHEMA,
     }),
   });
 }

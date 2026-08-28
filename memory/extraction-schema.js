@@ -63,24 +63,25 @@ export const EXTRACTION_SCHEMA = Object.freeze({
 export const EXTRACTION_SCHEMA_NAME = 'flunkiebot_memories';
 
 // Strict structured-output modes accept only a core subset of JSON Schema and
-// reject these counting and length keywords outright. Providers therefore
+// reject these counting and length keywords outright. Those routes therefore
 // receive a projection derived from the schema above, never a second
-// hand-written schema, and the omitted constraints stay fully enforced locally.
-const PROVIDER_UNSUPPORTED_KEYWORDS = new Set(['maxItems', 'minItems', 'maxLength']);
+// hand-written schema. Routes that carry the schema as guidance keep the full
+// one, and the omitted constraints stay fully enforced locally either way.
+const STRICT_UNSUPPORTED_KEYWORDS = new Set(['maxItems', 'minItems', 'maxLength']);
 
-function projectForProvider(node) {
-  if (Array.isArray(node)) return Object.freeze(node.map(projectForProvider));
+function projectForStrictMode(node) {
+  if (Array.isArray(node)) return Object.freeze(node.map(projectForStrictMode));
   if (node === null || typeof node !== 'object') return node;
 
   const projected = {};
   for (const [key, value] of Object.entries(node)) {
-    if (PROVIDER_UNSUPPORTED_KEYWORDS.has(key)) continue;
-    projected[key] = projectForProvider(value);
+    if (STRICT_UNSUPPORTED_KEYWORDS.has(key)) continue;
+    projected[key] = projectForStrictMode(value);
   }
   return Object.freeze(projected);
 }
 
-export const PROVIDER_EXTRACTION_SCHEMA = projectForProvider(EXTRACTION_SCHEMA);
+export const STRICT_EXTRACTION_SCHEMA = projectForStrictMode(EXTRACTION_SCHEMA);
 
 function typeOf(value) {
   if (value === null) return 'null';

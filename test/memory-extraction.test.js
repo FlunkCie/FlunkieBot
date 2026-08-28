@@ -345,22 +345,25 @@ test('24. resumes pending extraction runs after a simulated crash and stops retr
   secondBoot.close();
 });
 
-// Supplementary coverage: providers receive a projection of the one code-owned
-// schema, while every constraint the projection omits stays enforced locally.
-test('the extraction request carries a provider-safe schema projection', async (t) => {
+// Supplementary coverage: strict structured-output routes get a projection of
+// the one code-owned schema, instruction-style routes get the full schema, and
+// every constraint the projection omits stays enforced locally.
+test('the extraction request carries a strict-safe projection beside the full schema', async (t) => {
   const clock = createClock();
   const fixture = createMemoryFixture({ clock });
   t.after(() => fixture.memory.close());
 
   await fixture.completeTurn({ id: 'PS-1', text: 'ik woon in Amsterdam' });
 
-  const schema = fixture.requests[0].output.schema;
-  const serialized = JSON.stringify(schema);
+  const { schema, strictSchema } = fixture.requests[0].output;
+  const full = JSON.stringify(schema);
+  const strict = JSON.stringify(strictSchema);
   for (const keyword of ['maxItems', 'minItems', 'maxLength']) {
-    assert.ok(!serialized.includes(keyword), `strict structured output rejects "${keyword}"`);
+    assert.ok(full.includes(keyword), `the code-owned schema still bounds "${keyword}"`);
+    assert.ok(!strict.includes(keyword), `strict structured output rejects "${keyword}"`);
   }
-  assert.equal(schema.additionalProperties, false, 'the projection keeps the supported core keywords');
-  assert.deepEqual(schema.properties.memories.items.properties.category.enum, [
+  assert.equal(strictSchema.additionalProperties, false, 'the projection keeps the supported core keywords');
+  assert.deepEqual(strictSchema.properties.memories.items.properties.category.enum, [
     'participant_claim',
     'episode',
     'interaction_pattern',
