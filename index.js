@@ -1,178 +1,162 @@
 import 'dotenv/config';
-import {
-  makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  jidDecode,
-} from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
-import { askLLM } from './llm.js';
-import { getHistory, appendHistory } from './history.js';
+import { createChat } from './chat.js';
+import { createMemory, DEFAULT_DB_PATH } from './memory/index.js';
+import { createReplyGeneration } from './reply/index.js';
+import { createProviders } from './providers/index.js';
+import { createGifSearch } from './gif.js';
+import { loadPersonality } from './personality.js';
+import { createWhatsAppSender, getBotJids, normalizeEnvelope } from './whatsapp.js';
 import { logger, baileysLogger } from './logger.js';
 import { acquireLock, releaseLock } from './lock.js';
-import { sendNaturally } from './chat.js';
 
 const MAX_RECONNECT_DELAY_MS = 60_000;
 let reconnectAttempts = 0;
 
-// Drop the device suffix (":12") but keep the server (@s.whatsapp.net vs @lid) —
-// WhatsApp now hands out both PN- and LID-style jids for the same account, and
-// mentions can arrive in either form, so the bot needs to know all of its own jids.
-function normalizeJid(jid) {
-  const decoded = jidDecode(jid);
-  if (!decoded) return jid;
-  return `${decoded.user}@${decoded.server}`;
-}
-
-function getBotJids(sock) {
-  const candidates = [sock.user?.id, sock.user?.lid, sock.user?.phoneNumber];
-  return new Set(candidates.filter(Boolean).map(normalizeJid));
-}
-
-function extractText(message) {
-  if (!message) return null;
-  return (
-    message.conversation ||
-    message.extendedTextMessage?.text ||
-    message.imageMessage?.caption ||
-    message.videoMessage?.caption ||
-    null
-  );
-}
-
-function isBotMentioned(message, botJids) {
-  const mentionedJids = message.extendedTextMessage?.contextInfo?.mentionedJid || [];
-  return mentionedJids.some((jid) => botJids.has(normalizeJid(jid)));
-}
-
-function scheduleReconnect() {
+function scheduleReconnect(startBot) {
   reconnectAttempts += 1;
   const delay = Math.min(MAX_RECONNECT_DELAY_MS, 1000 * 2 ** reconnectAttempts);
   logger.warn(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
   setTimeout(() => {
     startBot().catch((err) => {
       logger.fatal({ err }, 'Failed to restart bot after disconnect');
-      scheduleReconnect();
+      scheduleReconnect(startBot);
     });
   }, delay);
 }
 
-async function handleMessage(sock, msg) {
-  if (!msg.message) return;
-  if (msg.key.fromMe) return;
-  if (msg.key.remoteJid === 'status@broadcast') return;
+async function main() {
+  const env = process.env;
+  const { replyProviders, extractionProviders } = createProviders(env);
 
-  const jid = msg.key.remoteJid;
-  const isGroup = jid.endsWith('@g.us');
-
-  if (isGroup) {
-    const botJids = getBotJids(sock);
-    const mentioned = isBotMentioned(msg.message, botJids);
-    logger.debug(
-      { botJids: [...botJids], mentionedJid: msg.message.extendedTextMessage?.contextInfo?.mentionedJid, mentioned },
-      'Checked group mention'
+  // Failure to configure any reply provider remains fatal.
+  if (replyProviders.length === 0) {
+    throw new Error(
+      'No LLM providers are configured. Set at least one of GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY in your .env file.'
     );
-    if (!mentioned) return;
   }
+  logger.info(
+    {
+      reply: replyProviders.map((p) => p.name),
+      extraction: extractionProviders.map((p) => p.name),
+    },
+    'LLM providers configured, in fallback order'
+  );
 
-  const text = extractText(msg.message);
-  if (!text) return;
+  const retryPasses = Number(env.LLM_RETRY_PASSES) || 2;
+  const retryDelayMs = Number(env.LLM_RETRY_DELAY_MS) || 5000;
 
-  // Strip the raw "@<number>" mention token so it isn't sent to Gemini as part of the prompt.
-  const prompt = text.replace(/@\d+/g, '').trim();
-  if (!prompt) return;
+  // A database-open, unknown-newer-schema, or migration failure is fatal here:
+  // FlunkieBot never silently degrades into a stateless mode.
+  const memory = createMemory({
+    dbPath: env.MEMORY_DB_PATH || DEFAULT_DB_PATH,
+    extractionProviders,
+    retryPasses,
+    retryDelayMs,
+    logger,
+  });
 
-  try {
-    await sock.sendPresenceUpdate('composing', jid).catch((err) => {
-      logger.warn({ err, jid }, 'Failed to send composing presence');
-    });
+  // Pending extraction runs are resumed oldest first before new messages are accepted.
+  await memory.start();
 
-    const messages = [...getHistory(jid), { role: 'user', content: prompt }];
-    const reply = await askLLM(messages);
+  // Without a GIPHY key the bot is never told it can send GIFs, so it never
+  // emits a directive that would go nowhere.
+  const gifSearch = createGifSearch(env.GIPHY_API_KEY);
 
-    // askLLM already guarantees a valid non-empty string, but never send
-    // anything to WhatsApp on the strength of an assumption alone.
-    if (typeof reply !== 'string' || reply.trim().length === 0) {
-      throw new Error(`Refusing to send invalid LLM reply: ${JSON.stringify(reply)}`);
-    }
+  const replyGeneration = createReplyGeneration({
+    providers: replyProviders,
+    personality: loadPersonality(),
+    gifsEnabled: Boolean(gifSearch),
+    retryPasses,
+    retryDelayMs,
+    logger,
+  });
 
-    appendHistory(jid, 'user', prompt);
-    appendHistory(jid, 'assistant', reply);
-    // Quoting only matters in groups, where it ties the reply to the message
-    // that mentioned the bot. In a 1:1 chat it's just noise.
-    await sendNaturally(sock, jid, reply, { quoted: isGroup ? msg : undefined });
-  } catch (err) {
-    logger.error({ err, jid }, 'Failed to get/send LLM reply');
+  process.on('exit', () => {
     try {
-      await sock.sendMessage(
-        jid,
-        { text: "Sorry, I couldn't process that right now.", linkPreview: null },
-        isGroup ? { quoted: msg } : undefined
-      );
-    } catch (sendErr) {
-      logger.error({ err: sendErr, jid }, 'Failed to send fallback error message');
+      memory.close();
+    } catch {
+      // already closed, nothing to clean up
     }
-  } finally {
-    await sock.sendPresenceUpdate('paused', jid).catch((err) => {
-      logger.warn({ err, jid }, 'Failed to send paused presence');
+  });
+
+  // Chat orchestration, and with it the per-conversation FIFO queues, lives for
+  // the whole process. A reconnect only swaps the socket the sender writes to,
+  // so work still in flight can never race a replayed message on a fresh queue.
+  let socket = null;
+  const chat = createChat({
+    memory,
+    replyGeneration,
+    sender: createWhatsAppSender(() => socket, undefined, { gifSearch, logger }),
+    logger,
+  });
+
+  async function startBot() {
+    logger.info('Starting bot...');
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+
+    const sock = makeWASocket({
+      auth: state,
+      logger: baileysLogger,
+      // Baileys' default (60s) can be tight for a background "props" sync
+      // query over Docker's network path; give it more headroom so it doesn't
+      // spuriously time out (harmless when it happens, but noisy in logs).
+      defaultQueryTimeoutMs: 120_000,
+    });
+
+    socket = sock;
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', (update) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      if (qr) {
+        qrcode.generate(qr, { small: true });
+        logger.info('Scan the QR code above with WhatsApp to log in.');
+      }
+
+      if (connection === 'close') {
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        logger.error({ err: lastDisconnect?.error, statusCode, shouldReconnect }, 'Connection closed');
+
+        if (shouldReconnect) {
+          scheduleReconnect(startBot);
+        } else {
+          logger.fatal(
+            'Logged out of WhatsApp. Delete the auth_info directory and restart to re-link with a fresh QR code.'
+          );
+        }
+      } else if (connection === 'open') {
+        reconnectAttempts = 0;
+        logger.info('Connected to WhatsApp.');
+      }
+    });
+
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      if (type !== 'notify') return;
+
+      const botJids = getBotJids(sock);
+      for (const envelope of messages) {
+        try {
+          const message = normalizeEnvelope(envelope, { botJids, now: Date.now() });
+          if (!message) continue;
+          // Errors inside one conversation queue never break the upsert loop.
+          chat.handleMessage(message).catch((err) => {
+            logger.error({ err, key: envelope.key }, 'Unhandled error while processing message');
+          });
+        } catch (err) {
+          logger.error({ err, key: envelope.key }, 'Failed to normalize message');
+        }
+      }
     });
   }
-}
 
-async function startBot() {
-  logger.info('Starting bot...');
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-
-  const sock = makeWASocket({
-    auth: state,
-    logger: baileysLogger,
-    // Baileys' default (60s) can be tight for a background "props" sync
-    // query over Docker's network path; give it more headroom so it doesn't
-    // spuriously time out (harmless when it happens, but noisy in logs).
-    defaultQueryTimeoutMs: 120_000,
-  });
-
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect, qr } = update;
-
-    if (qr) {
-      qrcode.generate(qr, { small: true });
-      logger.info('Scan the QR code above with WhatsApp to log in.');
-    }
-
-    if (connection === 'close') {
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      logger.error(
-        { err: lastDisconnect?.error, statusCode, shouldReconnect },
-        'Connection closed'
-      );
-
-      if (shouldReconnect) {
-        scheduleReconnect();
-      } else {
-        logger.fatal(
-          'Logged out of WhatsApp. Delete the auth_info directory and restart to re-link with a fresh QR code.'
-        );
-      }
-    } else if (connection === 'open') {
-      reconnectAttempts = 0;
-      logger.info('Connected to WhatsApp.');
-    }
-  });
-
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
-
-    for (const msg of messages) {
-      try {
-        await handleMessage(sock, msg);
-      } catch (err) {
-        logger.error({ err, key: msg.key }, 'Unhandled error while processing message');
-      }
-    }
+  await startBot().catch((err) => {
+    logger.fatal({ err }, 'Fatal error starting bot');
+    scheduleReconnect(startBot);
   });
 }
 
@@ -196,7 +180,7 @@ try {
   process.exit(1);
 }
 
-startBot().catch((err) => {
-  logger.fatal({ err }, 'Fatal error starting bot');
-  scheduleReconnect();
+main().catch((err) => {
+  logger.fatal({ err }, 'Refusing to start');
+  process.exit(1);
 });

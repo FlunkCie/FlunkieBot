@@ -1,39 +1,60 @@
 import { GoogleGenAI } from '@google/genai';
-import { systemPrompt } from '../prompt.js';
 import { providerError } from './error.js';
 
-const apiKey = process.env.GEMINI_API_KEY;
-const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 
-export const name = 'gemini';
+// Gemini's supported schema-constrained JSON configuration is
+// `responseMimeType: application/json` plus `responseJsonSchema`.
+export function createGeminiProvider({ apiKey, model = DEFAULT_MODEL, client }) {
+  const ai = client ?? new GoogleGenAI({ apiKey });
 
-export function isConfigured() {
-  return Boolean(apiKey);
-}
+  return {
+    name: 'gemini',
 
-function toGeminiContents(messages) {
-  return messages.map(({ role, content }) => ({
-    role: role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: content }],
-  }));
-}
+    async generate(request) {
+      const config = { systemInstruction: request.systemInstruction };
+      if (request.output.kind === 'structured') {
+        config.responseMimeType = 'application/json';
+        config.responseJsonSchema = request.output.schema;
+      }
 
-export async function ask(messages) {
-  let response;
-  try {
-    response = await ai.models.generateContent({
-      model,
-      contents: toGeminiContents(messages),
-      config: { systemInstruction: systemPrompt },
-    });
-  } catch (err) {
-    throw providerError('Gemini', err.status, err.message || String(err));
-  }
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model,
+          contents: request.messages.map(({ role, content }) => ({
+            role: role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: content }],
+          })),
+          config,
+        });
+      } catch (err) {
+        throw providerError('Gemini', err.status, err.message || String(err));
+      }
 
-  const reply = response.text;
-  if (!reply) {
-    throw providerError('Gemini', undefined, 'response had no text');
-  }
-  return reply;
+      if (response?.promptFeedback?.blockReason) {
+        throw providerError(
+          'Gemini',
+          undefined,
+          `prompt was blocked (${response.promptFeedback.blockReason})`
+        );
+      }
+
+      const candidate = response?.candidates?.[0];
+      if (!candidate) throw providerError('Gemini', undefined, 'response had no candidate');
+      if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+        throw providerError(
+          'Gemini',
+          undefined,
+          `generation did not complete normally (finishReason: ${candidate.finishReason})`
+        );
+      }
+
+      const text = response.text;
+      if (typeof text !== 'string' || text.trim().length === 0) {
+        throw providerError('Gemini', undefined, 'response had no text');
+      }
+      return { text };
+    },
+  };
 }

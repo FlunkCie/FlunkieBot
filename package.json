@@ -5,11 +5,13 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
     "@google/genai": "^2.19.0",
     "@whiskeysockets/baileys": "^6.7.16",
+    "better-sqlite3": "^13.0.3",
     "dotenv": "^16.4.5",
     "pino": "^9.5.0",
     "pino-pretty": "^13.0.0",

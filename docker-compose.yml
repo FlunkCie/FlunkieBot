@@ -6,7 +6,12 @@ services:
     env_file:
       - .env
     volumes:
+      # WhatsApp session credentials and the single-instance lock.
       - ./auth_info:/app/auth_info
+      # Hand-authored personality, read-only: FlunkieBot can never rewrite it.
       - ./system-prompt.txt:/app/system-prompt.txt:ro
+      # Persistent memory. The SQLite database lives on the host so durable
+      # memories survive container rebuilds and restarts.
+      - ./data:/app/data
     tty: true
     stdin_open: true
