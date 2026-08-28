@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createClock } from './helpers/clock.js';
-import { createMemoryFixture, claimBatch, triggerOf } from './helpers/memory-fixture.js';
+import { createMemoryFixture, claimBatch } from './helpers/memory-fixture.js';
 import { observation } from './helpers/messages.js';
 
 const ALEX = { kind: 'phone', value: '31600000001@s.whatsapp.net' };

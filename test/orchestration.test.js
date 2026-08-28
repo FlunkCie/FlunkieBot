@@ -272,6 +272,30 @@ test('51. keeps intentional silence distinct from generation and send failures',
   assert.ok(kinds.includes('failed'));
 });
 
+// Supplementary coverage for replay idempotency across reconnects, which
+// underpins the ordering and persistence scenarios above.
+test('replayed WhatsApp messages are handled idempotently', async (t) => {
+  const clock = createClock();
+  const fixture = createChatFixture({ clock });
+  t.after(() => fixture.memory.close());
+
+  const replayed = incoming({ id: 'RE-1', text: 'hoi' });
+  await fixture.chat.handleMessage(replayed);
+
+  assert.equal(fixture.sender.sent.length, 1);
+  const messagesAfterFirst = fixture.memory.inspect.messageCount();
+  const outcomesAfterFirst = fixture.memory.inspect.turnOutcomes().length;
+
+  // A reconnect delivers the very same envelope again.
+  await fixture.chat.handleMessage(replayed);
+  await fixture.chat.handleMessage(replayed);
+
+  assert.equal(fixture.sender.sent.length, 1, 'a replay never produces a second reply');
+  assert.equal(fixture.memory.inspect.messageCount(), messagesAfterFirst, 'no duplicated messages');
+  assert.equal(fixture.memory.inspect.turnOutcomes().length, outcomesAfterFirst, 'no duplicated turns');
+  assert.equal(fixture.memory.inspect.pendingRuns().length, 0, 'no duplicated extraction work');
+});
+
 test('56. confirms that direct-message and tagged-group routing still work', async (t) => {
   const clock = createClock();
   const fixture = createChatFixture({ clock });

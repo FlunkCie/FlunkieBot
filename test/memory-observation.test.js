@@ -233,3 +233,73 @@ test('12. keeps the oldest participant identity after a merge and resolves absor
     if (message.authorId) assert.equal(message.authorId, oldest);
   }
 });
+
+// Supplementary coverage: presentation labels are best effort and never
+// identity, so missing and colliding display names must fall back to
+// deterministic context-local labels.
+test('assigns deterministic context-local labels for missing and duplicate names', async (t) => {
+  const clock = createClock();
+  const memory = newMemory(clock);
+  t.after(() => memory.close());
+
+  const group = { address: 'flunkcie@g.us', kind: 'group' };
+
+  // Two different participants presenting the same display name.
+  await memory.observeMessage(
+    observation({
+      ...group,
+      id: 'L-1',
+      addressed: false,
+      text: 'eerste Alex',
+      senderLabel: 'Alex',
+      senderAlias: { kind: 'phone', value: '31600000001@s.whatsapp.net' },
+    })
+  );
+  clock.advance(1000);
+  await memory.observeMessage(
+    observation({
+      ...group,
+      id: 'L-2',
+      addressed: false,
+      text: 'tweede Alex',
+      senderLabel: 'Alex',
+      senderAlias: { kind: 'phone', value: '31600000002@s.whatsapp.net' },
+    })
+  );
+  clock.advance(1000);
+  // A participant with no display name at all.
+  await memory.observeMessage(
+    observation({
+      ...group,
+      id: 'L-3',
+      addressed: false,
+      text: 'naamloos',
+      senderLabel: null,
+      senderAlias: { kind: 'phone', value: '31600000003@s.whatsapp.net' },
+    })
+  );
+  clock.advance(1000);
+  const turn = await memory.observeMessage(
+    observation({
+      ...group,
+      id: 'L-4',
+      addressed: true,
+      text: 'oi bot',
+      senderLabel: 'Quirijn',
+      senderAlias: { kind: 'phone', value: '31600000004@s.whatsapp.net' },
+    })
+  );
+
+  const context = await memory.prepareAddressedTurn(turn.addressedTurnId);
+  const labels = context.recentMessages.map((message) => message.authorLabel);
+
+  assert.deepEqual(labels, ['Participant 1', 'Participant 2', 'Participant 3']);
+  assert.equal(context.addressedParticipant.label, 'Quirijn', 'a unique name is used as-is');
+
+  // Stable across repeated preparation of the same turn.
+  const again = await memory.prepareAddressedTurn(turn.addressedTurnId);
+  assert.deepEqual(
+    again.recentMessages.map((message) => message.authorLabel),
+    labels
+  );
+});

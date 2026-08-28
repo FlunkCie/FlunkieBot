@@ -142,8 +142,15 @@ export function createMemory({
       if (existing) {
         // Observation is idempotent for conversation address plus WhatsApp
         // message id: a replayed message never duplicates its addressed turn.
+        // A turn whose outcome is already recorded is finished, so a reconnect
+        // replaying it must not produce a second reply or a second extraction
+        // run; a turn still pending after a crash is returned so it can finish.
         const run = store.findRunByMessage(existing.id);
-        return { messageId: existing.id, addressedTurnId: run ? String(run.id) : null };
+        const finished = run ? store.findTurnOutcome(run.id) : null;
+        return {
+          messageId: existing.id,
+          addressedTurnId: run && !finished ? String(run.id) : null,
+        };
       }
 
       const participantId = resolveParticipant(store, {

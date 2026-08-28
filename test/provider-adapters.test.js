@@ -13,7 +13,7 @@ import {
 } from '../providers/index.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SCHEMA_NAME } from '../memory/extraction-schema.js';
 import { createReplyGeneration } from '../reply/index.js';
-import { failingProvider, textProvider } from './helpers/fake-providers.js';
+import { failingProvider } from './helpers/fake-providers.js';
 
 function jsonResponse(body, { ok = true, status = 200 } = {}) {
   return {

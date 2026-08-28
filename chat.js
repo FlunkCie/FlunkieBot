@@ -71,9 +71,7 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
     }
   }
 
-  async function respond(message, observed) {
-    const addressedTurnId = observed?.addressedTurnId ?? null;
-
+  async function respond(message, addressedTurnId) {
     let replyContext;
     if (addressedTurnId !== null) {
       try {
@@ -138,6 +136,17 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
 
     if (!message.addressed) return;
 
+    // Observation succeeded but handed back no addressed turn: this envelope was
+    // already answered before a reconnect replayed it. Replying again would
+    // duplicate the reply, the turn outcome and the extraction work.
+    if (observed && observed.addressedTurnId === null) {
+      logger?.debug?.(
+        { whatsappMessageId: message.whatsappMessageId },
+        'Skipping a replayed addressed message that was already handled'
+      );
+      return;
+    }
+
     try {
       await sender.sendPresence?.(message.conversationAddress, 'composing');
     } catch (err) {
@@ -145,7 +154,7 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
     }
 
     try {
-      await respond(message, observed);
+      await respond(message, observed?.addressedTurnId ?? null);
     } finally {
       try {
         await sender.sendPresence?.(message.conversationAddress, 'paused');

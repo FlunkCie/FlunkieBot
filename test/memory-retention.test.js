@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SEVEN_DAYS_MS } from '../memory/index.js';
 import { createClock } from './helpers/clock.js';
-import { createMemoryFixture, claimBatch, triggerOf } from './helpers/memory-fixture.js';
+import { createMemoryFixture, claimBatch } from './helpers/memory-fixture.js';
 import { observation } from './helpers/messages.js';
 
 test('13. prunes messages older than seven days while preserving the exact-boundary case', async (t) => {

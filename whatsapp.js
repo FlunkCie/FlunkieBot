@@ -89,7 +89,9 @@ export function normalizeEnvelope(envelope, { botJids, now }) {
   return {
     conversationAddress,
     conversationKind: isGroup ? 'group' : 'direct',
-    conversationLabel: isGroup ? envelope.groupSubject ?? null : envelope.pushName ?? null,
+    // Best-effort presentation only. A group subject would need a network
+    // lookup, so a group conversation simply carries no label.
+    conversationLabel: isGroup ? null : envelope.pushName ?? null,
     whatsappMessageId: envelope.key?.id,
     text,
     observedAt: envelope.messageTimestamp ? Number(envelope.messageTimestamp) * 1000 : now,

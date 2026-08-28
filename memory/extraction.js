@@ -184,7 +184,7 @@ function checkClaim(memory, packet, problems, prefix) {
   }
 }
 
-function checkEpisode(memory, packet, problems, prefix) {
+function checkEpisode(memory, problems, prefix) {
   if (!memory.reporter) problems.push(`${prefix}: an episode must preserve its reporter`);
 }
 
@@ -283,7 +283,7 @@ export function validateExtractionResult(rawText, packet) {
     }
 
     if (memory.category === 'participant_claim') checkClaim(memory, packet, problems, prefix);
-    if (memory.category === 'episode') checkEpisode(memory, packet, problems, prefix);
+    if (memory.category === 'episode') checkEpisode(memory, problems, prefix);
     if (memory.category === 'interaction_pattern') {
       checkInteractionPattern(memory, packet, problems, prefix);
     }

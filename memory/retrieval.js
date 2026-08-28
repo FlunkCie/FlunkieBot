@@ -6,7 +6,7 @@ import { resolveParticipantId } from './identity.js';
 const KEYWORD_MESSAGE_WINDOW = 5;
 const MAX_ASSOCIATED_PARTICIPANTS = 4;
 
-function associatedParticipants(store, category, row, episodeLinks) {
+function associatedParticipants(category, row, episodeLinks) {
   if (category === 'participant_claim') return [row.subjectParticipantId];
   if (category === 'interaction_pattern') return [row.participantId];
   const involved = episodeLinks.get(row.id) ?? [];
@@ -30,7 +30,7 @@ function collectCandidates(store) {
       occurredAt: row.occurredAt ?? null,
       createdAt: row.createdAt,
       reporterParticipantId: row.reporterParticipantId ?? null,
-      participantIds: associatedParticipants(store, category, row, episodeLinks),
+      participantIds: associatedParticipants(category, row, episodeLinks),
     });
   };
 
