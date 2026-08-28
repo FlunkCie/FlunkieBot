@@ -34,49 +34,36 @@ const TRUST_AND_OUTPUT_RULES = [
   `Gebruik ${SILENCE_TOKEN} nooit in enig ander geval en nooit als onderdeel van een echt antwoord.`,
 ].join('\n');
 
-// Section 5 of the system instruction: the code-owned delivery protocol. The
-// markers below are parsed in natural-send.js, so instruction and parsing are
-// owned together and can never drift apart.
+// Section 5 of the system instruction: the code-owned GIF delivery protocol.
+// The bubble-split rule itself is hand-authored in system-prompt.txt; this
+// stays code-owned only because it must be omitted when no GIPHY key is
+// configured, and the marker is parsed in natural-send.js so instruction and
+// parsing are owned together and can never drift apart.
 const BUBBLE_MARKER = '|||';
 
 function deliveryRules(gifsEnabled) {
-  const rules = [
-    '# BERICHTEN VERSTUREN',
-    'Je appt, je schrijft geen gesprekslogboek.',
-    `Als het past zoals een echt mens appt, mag je je antwoord opsplitsen in 2 of 3 korte losse berichten door een regel met alleen ${BUBBLE_MARKER} ertussen te zetten.`,
-    'Doe dat maar soms; één bericht blijft het normale geval, zeker bij korte antwoorden.',
-    'Loopt een antwoord langer dan een paar zinnen, dan splits je het altijd zo op: één gedachte per bericht, nooit een muur van tekst.',
-    'Je noemt of verklaart dit opsplitsen nooit.',
-  ];
+  if (!gifsEnabled) return null;
 
-  // The bot only hears about GIFs when a GIPHY key is configured; otherwise it
-  // would confidently emit directives that go nowhere.
-  if (gifsEnabled) {
-    rules.push(
-      'Je mag ook een GIF sturen in plaats van tekst. Zet daarvoor een regel met alleen [gif: <korte Engelse zoekterm>] als eigen los bericht, gescheiden door ' +
-        `${BUBBLE_MARKER} van al het andere.`,
-      'Gebruik dat spaarzaam, alleen als een reactie-gif echt beter landt dan woorden, zoals mensen ze echt gebruiken.',
-      'Combineer een gif nooit met tekst in hetzelfde bericht en leg nooit uit dat je er een stuurt.'
-    );
-  }
-
-  return rules.join('\n');
+  return [
+    '# GIF',
+    'Je mag ook een GIF sturen in plaats van tekst. Zet daarvoor een regel met alleen [gif: <korte Engelse zoekterm>] als eigen los bericht, gescheiden door ' +
+      `${BUBBLE_MARKER} van al het andere.`,
+    'Gebruik dat spaarzaam, alleen als een reactie-gif echt beter landt dan woorden, zoals mensen ze echt gebruiken.',
+    'Combineer een gif nooit met tekst in hetzelfde bericht en leg nooit uit dat je er een stuurt.',
+  ].join('\n');
 }
 
 /**
- * Assembles the system instruction: hand-authored identity and fixed lore,
- * hand-authored savage voice and behavioural priorities, memory-use rules,
- * code-owned trust and output rules, and the code-owned delivery protocol, in
- * that order. The permanent system instruction is outside the dynamic context
- * budget.
+ * Assembles the system instruction: hand-authored identity, fixed lore, voice
+ * and delivery/bubble-splitting rules, then code-owned memory-use rules,
+ * trust and output rules, and (only when configured) the GIF delivery
+ * protocol, in that order. The permanent system instruction is outside the
+ * dynamic context budget.
  */
 export function buildSystemInstruction(personality, { gifsEnabled = false } = {}) {
-  return [
-    personality.trim(),
-    MEMORY_RULES,
-    TRUST_AND_OUTPUT_RULES,
-    deliveryRules(gifsEnabled),
-  ].join('\n\n');
+  return [personality.trim(), MEMORY_RULES, TRUST_AND_OUTPUT_RULES, deliveryRules(gifsEnabled)]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 // Clip to a character budget while preserving the beginning and the end around
