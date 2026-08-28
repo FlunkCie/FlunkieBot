@@ -55,6 +55,11 @@ See [CONTEXT.md](CONTEXT.md) for the domain model and the exact vocabulary this 
    | `LLM_RETRY_PASSES`        | no           | `2`                            | If every provider fails in one pass, retry the whole chain this many times                          |
    | `LLM_RETRY_DELAY_MS`      | no           | `5000`                         | Delay in ms between retry passes                                                                    |
    | `MEMORY_DB_PATH`          | no           | `./data/flunkiebot.sqlite`     | SQLite database holding conversation messages and durable memories                                  |
+   | `INITIATIVE_MODE`         | no           | `off`                          | `off` or `dm-only`. See [Unprompted messages](#unprompted-messages)                                 |
+   | `INITIATIVE_MIN_DAYS`     | no           | `14`                           | Minimum days between two unprompted messages to the same person                                     |
+   | `INITIATIVE_WEEKLY_CAP`   | no           | `2`                            | Maximum unprompted messages across the whole group per rolling seven days                           |
+   | `INITIATIVE_HOURS`        | no           | `10-23`                        | Local-time window in which an unprompted message may go out, end exclusive                          |
+   | `INITIATIVE_EXCLUDED_NUMBERS` | no       | -                              | Comma-separated phone numbers that never receive an unprompted message                              |
    | `LOG_LEVEL`               | no           | `info`                         | App log verbosity: trace, debug, info, warn, error, fatal                                           |
    | `LOG_FORMAT`              | no           | pretty                         | Set to `json` for raw structured JSON instead of readable logs                                      |
    | `BAILEYS_LOG_LEVEL`       | no           | `warn`                         | Verbosity of Baileys' own internal logger                                                           |
@@ -93,6 +98,32 @@ FlunkieBot never silently falls back to a stateless mode.
 
 There are no remember, forget, inspect, or moderation commands, and no memory dashboard.
 This is a deliberately simple friends-group deployment.
+
+## Unprompted messages
+
+FlunkieBot can start a conversation himself instead of only answering one.
+This is off by default: with `INITIATIVE_MODE=off` nothing below happens at all, and no unprompted message is even generated.
+
+Set `INITIATIVE_MODE=dm-only` to switch it on.
+There is deliberately no mode that reaches further than that.
+
+- **Who can receive one.** Only participants who already started a direct-message thread with FlunkieBot themselves. Someone who knows him purely from the group never gets an unprompted message, however much he remembers about them. That set is derived from the direct conversations he already has, which never expire.
+- **When it runs.** Piggybacking on a turn he just handled, in the same process. There is no scheduler, no background loop and no second process, so he never produces outgoing traffic in an otherwise silent account.
+- **What counts as an occasion**, in this order: someone was discussed in the group while they had been silent themselves for at least 24 hours; or a stored episode has been sitting there for at least 14 days and has never been used before. Neither means nothing is sent.
+- **The budget.** At most one unprompted message per person per `INITIATIVE_MIN_DAYS`, at most `INITIATIVE_WEEKLY_CAP` across the whole group per rolling week, and only inside `INITIATIVE_HOURS`. The budget is the control, not the occasion: there are far more valid occasions in a week than the budget will ever spend.
+- **The stop rule.** Two unprompted messages in a row that were never answered put that person on hold for thirty days. A message that got a reply does not count as ignored.
+- **The exclusion list.** `INITIATIVE_EXCLUDED_NUMBERS` takes anyone out entirely, whatever the mode says.
+
+`INITIATIVE_HOURS` is read in the process timezone, and a container runs in UTC unless told otherwise.
+Set `TZ` in `.env` before switching this on, or the window lands in the wrong part of the day.
+
+The stop rule is a technical mitigation rather than politeness.
+WhatsApp is testing a monthly limit on messages that receive no reply, which applies to personal accounts too, and messages that do get a reply are explicitly excluded from it.
+Combined with the fact that the only realistic way to lose the number here is a human blocking or reporting the bot, the annoyance threshold and the ban threshold are the same threshold.
+
+An unprompted message never uses the same durable memory twice, and ripeness is measured from the moment a memory was stored, never from the occurrence time the model supplied for it: that field is often missing or wrong.
+A prank is a tone rather than an occasion of its own, and is handled in the prompt.
+The send itself runs in the queue of the *recipient*, so an unprompted message can never cut in front of a message arriving from that same person, and it goes out through the same composing-presence and typing pacing as every other reply.
 
 ## Running with Docker Compose
 
@@ -137,8 +168,9 @@ Whether FlunkieBot is actually funny stays a manual judgement in real conversati
 | `whatsapp.js`                 | WhatsApp normalization and the sender adapter                                             |
 | `natural-send.js`             | Bubble splitting and typing pacing for outgoing replies                                   |
 | `gif.js`                      | GIPHY search, used only when `GIPHY_API_KEY` is set                                       |
-| `memory/index.js`             | The memory module: observe a message, prepare an addressed turn, finish an addressed turn |
+| `memory/index.js`             | The memory module: observe a message, the addressed-turn pair, and the initiative pair    |
 | `memory/store.js`             | The only place in the application that holds SQL                                          |
+| `memory/initiative.js`        | Who may receive an unprompted message, when, and on what occasion                         |
 | `memory/database.js`          | Database open, pragmas and migration application                                          |
 | `memory/migrations.js`        | Ordered, versioned schema migrations                                                      |
 | `memory/identity.js`          | Participant identity, evidence-backed alias pairing and merges                            |
@@ -146,7 +178,7 @@ Whether FlunkieBot is actually funny stays a manual judgement in real conversati
 | `memory/extraction.js`        | Extraction packets, validation pipeline and atomic batch writes                           |
 | `memory/extraction-schema.js` | The code-owned extraction JSON Schema and its validator                                   |
 | `memory/text.js`              | Deterministic text normalization shared by retrieval and durable-memory keys              |
-| `reply/index.js`              | Reply generation: one operation returning a reply or intentional silence                  |
+| `reply/index.js`              | Reply generation: answering a message, and writing an unprompted opening message          |
 | `reply/prompt-assembly.js`    | Internal prompt assembly, context budgets and the output protocol                         |
 | `provider-fallback.js`        | Bounded provider fallback shared by reply generation and extraction                       |
 | `providers/*.js`              | Transport-only provider adapters (Groq, OpenRouter, Gemini) and error normalization       |
@@ -162,4 +194,5 @@ Whether FlunkieBot is actually funny stays a manual judgement in real conversati
 - Module boundaries are deliberate: the memory module is the only place that issues SQL, reply generation is the only place that builds prompts and interprets model output, and provider adapters carry transport concerns only. Chat orchestration does none of those three.
 - `auth_info/` contains your WhatsApp session. Treat it like a password and never commit it.
 - Every provider reply is validated before being sent. Empty, truncated, refused, filtered, or otherwise incomplete output is treated exactly like a network failure and triggers the same fallback path, rather than ever reaching WhatsApp.
-- The reserved silence token is interpreted before sending and is never sent as message text.
+- The reserved silence token is interpreted before sending and is never sent as message text. It is not accepted at all for an unprompted message: sending nothing is the default there, not the joke.
+- Whether an unprompted message goes out is entirely a memory-module decision. Chat orchestration only carries out what it hands back, and never decides who gets one or when.

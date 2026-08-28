@@ -1,6 +1,7 @@
 import { createStore } from './store.js';
 import { resolveParticipant, resolveParticipantId } from './identity.js';
 import { retrieveMemory } from './retrieval.js';
+import { initiativeSettings, selectInitiativeTarget } from './initiative.js';
 import {
   buildExtractionPacket,
   buildExtractionRequest,
@@ -37,8 +38,13 @@ function assignLabels(entries) {
 /**
  * The memory module. It exclusively owns the SQLite connection, participant
  * identity, temporary conversation messages, durable memories, extraction and
- * pruning, and exposes exactly three asynchronous memory operations:
- * `observeMessage`, `prepareAddressedTurn` and `finishAddressedTurn`.
+ * pruning.
+ *
+ * It exposes the three addressed-turn operations `observeMessage`,
+ * `prepareAddressedTurn` and `finishAddressedTurn`, plus one initiative
+ * operation for unprompted messages, split into the same prepare/finish pair:
+ * `prepareInitiative` picks a target and delivers its context, and
+ * `finishInitiative` records what was actually sent.
  * `start` and `close` are lifecycle hooks, not memory operations.
  *
  * `finishAddressedTurn` commits the visible turn outcome before it yields and
@@ -56,8 +62,16 @@ export function createMemory({
   sleep,
   logger,
   newParticipantId,
+  initiative,
 } = {}) {
   const store = createStore({ path: dbPath, migrations });
+  const initiativePolicy = initiativeSettings(initiative);
+
+  // Initiatives that have been selected but not yet sent. They already count
+  // against both halves of the budget, so two turns finishing at the same time
+  // in different conversations can never spend the same slot twice.
+  const reservedInitiatives = new Map();
+  let nextReservationId = 1;
 
   function prune() {
     // A pruning failure is logged and retried at the next pruning opportunity:
@@ -68,6 +82,28 @@ export function createMemory({
     } catch (err) {
       logger?.warn?.({ err }, 'Pruning failed, retrying at the next opportunity');
     }
+  }
+
+  // Collects the participants that appear in one piece of model context and
+  // hands back a label lookup for them. Labels are context-local presentation
+  // only: internal participant ids never reach a model.
+  function startNaming() {
+    const entries = [];
+    const seen = new Set();
+    return {
+      add(participantId, displayName) {
+        if (!participantId) return;
+        const resolved = resolveParticipantId(store, participantId);
+        if (seen.has(resolved)) return;
+        seen.add(resolved);
+        entries.push({ participantId: resolved, displayName: displayName ?? null });
+      },
+      resolve() {
+        const labels = assignLabels(entries);
+        return (participantId) =>
+          participantId ? labels.get(resolveParticipantId(store, participantId)) ?? null : null;
+      },
+    };
   }
 
   function conversationFor(observation, now) {
@@ -205,6 +241,13 @@ export function createMemory({
               now
             )
           : null;
+        // An incoming message in a direct thread answers every unprompted
+        // message still waiting for one there. Replied-to initiatives do not
+        // count towards the stop rule, exactly as WhatsApp's own limit on
+        // unanswered messages works.
+        if (participantId && observation.direction === 'incoming' && conversation.kind === 'direct') {
+          store.markInitiativesReplied(participantId, conversation.id, now);
+        }
         return { messageId, runId };
       });
 
@@ -246,28 +289,17 @@ export function createMemory({
         retrievedMemory = null;
       }
 
-      const labelEntries = [];
-      const seen = new Set();
-      const addEntry = (participantId, displayName) => {
-        if (!participantId) return;
-        const resolved = resolveParticipantId(store, participantId);
-        if (seen.has(resolved)) return;
-        seen.add(resolved);
-        labelEntries.push({ participantId: resolved, displayName: displayName ?? null });
-      };
+      const naming = startNaming();
       for (const item of recent) {
         if (item.direction === 'outgoing') continue;
-        addEntry(item.participantId, item.authorLabel);
+        naming.add(item.participantId, item.authorLabel);
       }
-      addEntry(addressedParticipantId, message.authorLabel);
-      for (const participantId of retrievedMemory?.participantIds ?? []) addEntry(participantId, null);
+      naming.add(addressedParticipantId, message.authorLabel);
+      for (const participantId of retrievedMemory?.participantIds ?? []) naming.add(participantId, null);
       if (retrievedMemory?.reporterParticipantId) {
-        addEntry(retrievedMemory.reporterParticipantId, null);
+        naming.add(retrievedMemory.reporterParticipantId, null);
       }
-
-      const labels = assignLabels(labelEntries);
-      const labelOf = (participantId) =>
-        participantId ? labels.get(resolveParticipantId(store, participantId)) ?? null : null;
+      const labelOf = naming.resolve();
 
       return {
         conversation: { kind: conversation.kind, label: conversation.label ?? null },
@@ -341,6 +373,143 @@ export function createMemory({
       if (message) await runExtraction(store.findRunById(run.id));
     },
 
+    /**
+     * The first half of the initiative operation: pick at most one participant
+     * who may receive an unprompted message right now, and deliver the context
+     * for it. Returns null whenever the mode, the send window, either half of
+     * the budget, the stop rule or the absence of an occasion says no, which is
+     * the overwhelmingly common answer.
+     *
+     * Selection is deliberately not retrieval. There is no current message to be
+     * relevant to, so the rule is "ripe and never used before", not "relevant".
+     *
+     * The whole body runs synchronously against SQLite, so the budget check and
+     * the reservation it hands out can never interleave with another caller.
+     */
+    async prepareInitiative(afterAddressedTurnId = null) {
+      if (initiativePolicy.mode === 'off') return null;
+
+      const now = clock();
+      let sourceConversationId = null;
+      let sourceParticipantId = null;
+
+      if (afterAddressedTurnId !== null && afterAddressedTurnId !== undefined) {
+        const run = store.findRunById(Number(afterAddressedTurnId));
+        if (!run) return null;
+        sourceConversationId = run.conversationId;
+        const message = run.messageId ? store.findMessageById(run.messageId) : null;
+        sourceParticipantId = message?.participantId ?? null;
+      }
+
+      const target = selectInitiativeTarget(store, {
+        now,
+        sourceConversationId,
+        sourceParticipantId,
+        settings: initiativePolicy,
+        reserved: [...reservedInitiatives.values()],
+      });
+      if (!target) return null;
+
+      const conversation = store.findConversationById(target.conversationId);
+      const recent = store.recentMessages(target.conversationId, null, RECENT_CONTEXT_LIMIT).reverse();
+
+      const naming = startNaming();
+      for (const item of recent) {
+        if (item.direction === 'outgoing') continue;
+        naming.add(item.participantId, item.authorLabel);
+      }
+      // The recipient may have said nothing recently enough to still be
+      // retained, so their label comes from whatever the store still knows.
+      naming.add(
+        target.participantId,
+        store.authorLabelsOf(target.participantId)[0] ?? conversation.label ?? null
+      );
+      for (const participantId of target.memory?.participantIds ?? []) naming.add(participantId, null);
+      if (target.memory?.reporterParticipantId) naming.add(target.memory.reporterParticipantId, null);
+      const labelOf = naming.resolve();
+
+      const initiativeId = String(nextReservationId);
+      nextReservationId += 1;
+      reservedInitiatives.set(initiativeId, {
+        participantId: target.participantId,
+        conversationId: target.conversationId,
+        occasion: target.occasion,
+        memory: target.memory,
+      });
+
+      return {
+        initiativeId,
+        conversationAddress: conversation.address,
+        context: {
+          conversation: { kind: conversation.kind, label: conversation.label ?? null },
+          addressedParticipant: {
+            id: target.participantId,
+            label: labelOf(target.participantId),
+          },
+          occasion: target.occasion,
+          recentMessages: recent.map((item) => ({
+            authorId: item.direction === 'outgoing' ? null : resolveParticipantId(store, item.participantId),
+            authorLabel: item.direction === 'outgoing' ? BOT_LABEL : labelOf(item.participantId),
+            direction: item.direction,
+            text: item.text,
+            observedAt: item.observedAt,
+            addressedBot: Boolean(item.addressed),
+          })),
+          retrievedMemory: target.memory && {
+            category: target.memory.category,
+            text: target.memory.text,
+            participantIds: target.memory.participantIds,
+            participantLabels: target.memory.participantIds.map(labelOf).filter(Boolean),
+            occurredAt: target.memory.occurredAt,
+            reporterId: target.memory.reporterParticipantId,
+            reporterLabel: labelOf(target.memory.reporterParticipantId),
+            evidenceExcerpt:
+              store.firstEvidence(target.memory.category, target.memory.id)?.excerpt ?? null,
+          },
+        },
+      };
+    },
+
+    /**
+     * The second half of the initiative operation: record what was actually
+     * sent. Only a delivered message becomes an initiative, because only a
+     * delivered message can annoy anyone, can be ignored, or can burn a memory.
+     * An abandoned initiative releases its reservation and leaves no trace.
+     */
+    async finishInitiative(initiativeId, outcome) {
+      const reserved = reservedInitiatives.get(String(initiativeId));
+      if (!reserved) throw new Error(`Unknown initiative ${initiativeId}`);
+      reservedInitiatives.delete(String(initiativeId));
+
+      if (outcome?.kind !== 'sent') return;
+
+      const commit = store.transaction(() => {
+        const messageId = store.insertMessage({
+          conversationId: reserved.conversationId,
+          participantId: null,
+          whatsappMessageId: outcome.sentMessage.whatsappMessageId,
+          direction: 'outgoing',
+          observedAt: outcome.sentMessage.sentAt,
+          addressed: false,
+          text: outcome.sentMessage.text,
+          authorLabel: BOT_LABEL,
+        });
+        store.insertInitiative({
+          // An evidence-backed merge may have absorbed this identity while the
+          // message was in flight; the budget must land on the survivor.
+          participantId: resolveParticipantId(store, reserved.participantId),
+          conversationId: reserved.conversationId,
+          occasion: reserved.occasion,
+          memoryCategory: reserved.memory?.category ?? null,
+          memoryId: reserved.memory?.id ?? null,
+          messageId,
+          sentAt: outcome.sentMessage.sentAt,
+        });
+      });
+
+      commit();
+    },
+
     // Test-visible read models. They return domain records, never SQL or
     // physical storage names, so the storage schema stays private.
     inspect: {
@@ -351,6 +520,7 @@ export function createMemory({
       interactionPatterns: () => store.listInteractionPatterns(),
       evidenceCount: () => store.countEvidence(),
       turnOutcomes: () => store.listTurnOutcomes(),
+      initiatives: () => store.listInitiatives(),
       pendingRuns: () => store.listPendingRuns(),
       runState: (turnId) => store.findRunById(Number(turnId))?.state ?? null,
       pairingConflicts: () => store.listPairingConflicts(),

@@ -1,4 +1,4 @@
-import { buildReplyRequest, SILENCE_TOKEN } from './prompt-assembly.js';
+import { buildReplyRequest, buildInitiativeRequest, SILENCE_TOKEN } from './prompt-assembly.js';
 import { runWithProviderFallback } from '../provider-fallback.js';
 
 export { SILENCE_TOKEN };
@@ -13,7 +13,9 @@ export class InvalidReplyError extends Error {
 /**
  * Reply generation. It owns prompt assembly, character budgets, provider
  * fallback, raw-output validation and interpretation of the reserved silence
- * token, and exposes exactly one operation.
+ * token, and exposes two operations: `generateReply` answers a message that
+ * addressed FlunkieBot, and `generateInitiative` writes an unprompted opening
+ * message that answers nothing.
  */
 export function createReplyGeneration({
   providers,
@@ -75,5 +77,44 @@ export function createReplyGeneration({
     });
   }
 
-  return { generateReply };
+  /**
+   * @returns {Promise<{ kind: 'reply', text: string }>}
+   * Never returns silence: for an unprompted message, sending nothing is the
+   * default rather than a joke, and that decision is already made before this
+   * is called. The silence token is therefore invalid output here and simply
+   * advances provider fallback like any other malformed reply.
+   */
+  async function generateInitiative(initiativeContext) {
+    const request = buildInitiativeRequest(initiativeContext, personality, { gifsEnabled });
+
+    return runWithProviderFallback({
+      providers,
+      request,
+      label: 'initiative',
+      retryPasses,
+      retryDelayMs,
+      sleep,
+      logger,
+      attempt: async (provider, immutableRequest) => {
+        const result = await provider.generate(immutableRequest);
+        const raw = result?.text;
+
+        if (typeof raw !== 'string' || raw.trim().length === 0) {
+          throw new InvalidReplyError(
+            `returned invalid output (${typeof raw}: ${JSON.stringify(raw)?.slice(0, 200)})`
+          );
+        }
+
+        const text = raw.trim();
+
+        if (text === SILENCE_TOKEN) {
+          throw new InvalidReplyError('returned the silence token for an unprompted message');
+        }
+
+        return { kind: 'reply', text };
+      },
+    });
+  }
+
+  return { generateReply, generateInitiative };
 }

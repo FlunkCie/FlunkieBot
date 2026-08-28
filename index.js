@@ -19,6 +19,7 @@ for (const stream of [process.stdout, process.stderr]) {
 import qrcode from 'qrcode-terminal';
 import { createChat } from './chat.js';
 import { createMemory, DEFAULT_DB_PATH } from './memory/index.js';
+import { parseInitiativeSettings } from './memory/initiative.js';
 import { createReplyGeneration } from './reply/index.js';
 import { createProviders } from './providers/index.js';
 import { createGifSearch } from './gif.js';
@@ -63,6 +64,21 @@ async function main() {
   const retryPasses = Number(env.LLM_RETRY_PASSES) || 2;
   const retryDelayMs = Number(env.LLM_RETRY_DELAY_MS) || 5000;
 
+  // Unprompted messages are off unless the operator turns them on, and a
+  // malformed knob is fatal rather than silently falling back to a setting
+  // nobody picked.
+  const initiative = parseInitiativeSettings(env);
+  logger.info(
+    {
+      mode: initiative.mode,
+      minDays: initiative.minDays,
+      weeklyCap: initiative.weeklyCap,
+      hours: `${initiative.hours.start}-${initiative.hours.end}`,
+      excluded: initiative.excludedNumbers.size,
+    },
+    'Unprompted messages configured'
+  );
+
   // A database-open, unknown-newer-schema, or migration failure is fatal here:
   // FlunkieBot never silently degrades into a stateless mode.
   const memory = createMemory({
@@ -71,6 +87,7 @@ async function main() {
     retryPasses,
     retryDelayMs,
     logger,
+    initiative,
   });
 
   // Pending extraction runs are resumed oldest first before new messages are accepted.

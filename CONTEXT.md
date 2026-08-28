@@ -43,6 +43,16 @@ _Avoid_: Transcript, citation
 **Callback**:
 A reply that creatively weaponizes relevant participant knowledge or an episode instead of merely reciting it.
 
+**Initiative**:
+One message FlunkieBot sends without having been addressed, to a single participant who already started a direct-message conversation with him.
+It is bounded by a budget rather than by its occasion, and every one that was actually delivered is recorded, including whether it was ever answered.
+_Avoid_: Notification, broadcast, nudge campaign
+
+**Occasion**:
+The reason an initiative exists at this moment: someone being discussed while absent, or a durable memory that has become ripe.
+An occasion only ever selects which moment is taken; it never decides how many initiatives are sent.
+_Avoid_: Trigger, event
+
 **Intentional silence**:
 A deliberate decision not to reply after being addressed because silence itself continues an established interaction pattern and strengthens FlunkieBot's personality.
 It is distinct from a failed or lost reply.

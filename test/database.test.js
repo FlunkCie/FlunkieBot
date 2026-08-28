@@ -1,4 +1,4 @@
-// Scenarios 1-5. Focused low-level verification is permitted only for
+// Scenarios 1-5 and 72. Focused low-level verification is permitted only for
 // migrations and database constraints, whose behaviour cannot be diagnosed
 // reliably through a higher seam.
 import test from 'node:test';
@@ -37,6 +37,7 @@ test('1. creates an empty database with all required configuration and constrain
     'extraction_runs',
     'turn_outcomes',
     'evidence_snapshots',
+    'initiatives',
   ]) {
     assert.ok(tables.includes(required), `expected table ${required}`);
   }
@@ -180,4 +181,39 @@ test('5. refuses an unknown newer schema version', () => {
     (err) =>
       err instanceof DatabaseStartupError && /newer than this build understands/.test(err.message)
   );
+});
+
+test('72. migrates an existing version 1 database to the initiative ledger', () => {
+  const path = temporaryDatabasePath();
+
+  // A database as it shipped before unprompted messages existed.
+  const before = openDatabase({ path, migrations: MIGRATIONS.filter((m) => m.version === 1) });
+  before.prepare('INSERT INTO participants (id, created_at) VALUES (?, ?)').run('p-a', 1);
+  before
+    .prepare('INSERT INTO conversations (address, kind, label, created_at) VALUES (?, ?, ?, ?)')
+    .run('31600000001@s.whatsapp.net', 'direct', 'Alex', 1);
+  assert.equal(before.pragma('user_version', { simple: true }), 1);
+  before.close();
+
+  const db = openDatabase({ path, migrations: MIGRATIONS });
+  assert.equal(db.pragma('user_version', { simple: true }), LATEST_SCHEMA_VERSION);
+  assert.ok(tableNames(db).includes('initiatives'));
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM participants').get().n, 1, 'existing rows survive');
+
+  const insert = db.prepare(
+    `INSERT INTO initiatives
+       (participant_id, conversation_id, occasion, memory_category, memory_id, message_id, sent_at, replied_at)
+     VALUES (?, 1, ?, ?, ?, NULL, ?, NULL)`
+  );
+
+  insert.run('p-a', 'discussed-while-absent', null, null, 10);
+  insert.run('p-a', 'ripe-episode', 'episode', 7, 20);
+
+  // The occasion is constrained, and a memory reference is either whole or absent.
+  assert.throws(() => insert.run('p-a', 'because-i-felt-like-it', null, null, 30), /CHECK/);
+  assert.throws(() => insert.run('p-a', 'ripe-episode', 'episode', null, 40), /CHECK/);
+  assert.throws(() => insert.run('p-a', 'ripe-episode', null, 7, 50), /CHECK/);
+  assert.throws(() => insert.run('unknown-participant', 'ripe-episode', null, null, 60), /FOREIGN KEY/);
+
+  db.close();
 });

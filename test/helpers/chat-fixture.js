@@ -11,14 +11,37 @@ const PERSONALITY = '# IDENTITEIT EN LORE\nFlunkieBot.\n\n# STEM EN GEDRAG\nKank
  * messages, a fake WhatsApp sender, real file-backed memory, and reply
  * generation backed by fake providers.
  */
-export function createChatFixture({ clock, dbPath = temporaryDatabasePath(), reply, extraction } = {}) {
+export function createChatFixture({
+  clock,
+  dbPath = temporaryDatabasePath(),
+  reply,
+  initiativeReply,
+  extraction,
+  initiative,
+} = {}) {
   let replyResponder = reply ?? (() => ({ text: 'Kanker goed.' }));
+  let initiativeResponder = initiativeReply ?? (() => ({ text: 'Ik moest ineens aan je denken.' }));
   let extractionResponder = extraction ?? (() => ({ memories: [] }));
 
   const replyRequests = [];
+  const initiativeRequests = [];
+
+  // One provider serves both reply-generation operations, exactly as in
+  // production. An unprompted message is recognizable by its packet: it names
+  // an occasion and carries no message to answer.
   const replyProvider = {
     name: 'fake-reply',
     async generate(request) {
+      const content = request.messages[0].content;
+      const packet = JSON.parse(content.slice(content.indexOf('\n') + 1));
+
+      if (packet.messageToAnswer === undefined) {
+        initiativeRequests.push(request);
+        const initiated = await initiativeResponder(request, initiativeRequests.length);
+        if (initiated instanceof Error) throw initiated;
+        return initiated;
+      }
+
       replyRequests.push(request);
       const result = await replyResponder(request, replyRequests.length);
       if (result instanceof Error) throw result;
@@ -43,6 +66,7 @@ export function createChatFixture({ clock, dbPath = temporaryDatabasePath(), rep
     extractionProviders: [extractionProvider],
     retryPasses: 1,
     sleep: async () => {},
+    initiative,
   });
 
   const replyGeneration = createReplyGeneration({
@@ -61,8 +85,12 @@ export function createChatFixture({ clock, dbPath = temporaryDatabasePath(), rep
     sender,
     dbPath,
     replyRequests,
+    initiativeRequests,
     setReply(next) {
       replyResponder = typeof next === 'function' ? next : () => next;
+    },
+    setInitiativeReply(next) {
+      initiativeResponder = typeof next === 'function' ? next : () => next;
     },
     setExtraction(next) {
       extractionResponder = typeof next === 'function' ? next : () => next;

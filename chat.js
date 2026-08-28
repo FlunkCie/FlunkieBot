@@ -2,8 +2,13 @@
 // routing, per-conversation ordering, presence updates, sending, and
 // coordination across the memory and reply-generation interfaces.
 //
+// It has two entry points: `handleMessage` for an incoming message, and
+// `considerInitiative` for the unprompted message that may piggyback on a turn
+// that was just handled.
+//
 // It issues no SQL, constructs no prompts, validates no model output, and never
-// calls a provider adapter directly.
+// calls a provider adapter directly. It also decides nothing about who gets an
+// unprompted message or when: that is memory policy.
 
 export const FAILURE_NOTIFICATION_TEXT =
   'Kankerzooi, mijn orakel ligt plat. Probeer het straks nog eens.';
@@ -128,7 +133,10 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
 
     if (outcome.kind === 'silence') {
       logger?.info?.({ conversationAddress: message.conversationAddress }, 'Intentional silence');
-      return { background: finish(addressedTurnId, { kind: 'intentional-silence' }) };
+      return {
+        background: finish(addressedTurnId, { kind: 'intentional-silence' }),
+        completedTurnId: addressedTurnId,
+      };
     }
 
     let sentMessage;
@@ -147,7 +155,63 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
       };
     }
 
-    return { background: finish(addressedTurnId, { kind: 'reply-sent', sentMessage }) };
+    return {
+      background: finish(addressedTurnId, { kind: 'reply-sent', sentMessage }),
+      completedTurnId: addressedTurnId,
+    };
+  }
+
+  // An unprompted message piggybacks on a turn FlunkieBot just handled: no
+  // scheduler, no background loop, and no outgoing traffic in an otherwise
+  // silent account. Whether anything is sent at all is entirely the memory
+  // module's call; orchestration only carries out what it hands back.
+  async function sendInitiative(prepared) {
+    const address = prepared.conversationAddress;
+
+    let outcome;
+    try {
+      outcome = await replyGeneration.generateInitiative(prepared.context);
+    } catch (err) {
+      logger?.warn?.({ err, address }, 'All providers failed for an unprompted message, sending nothing');
+      await memory.finishInitiative(prepared.initiativeId, { kind: 'not-sent' });
+      return;
+    }
+
+    try {
+      await sender.sendPresence?.(address, 'composing');
+    } catch (err) {
+      logger?.warn?.({ err }, 'Failed to send composing presence');
+    }
+
+    try {
+      const sentMessage = await sender.sendText(address, outcome.text);
+      await memory.finishInitiative(prepared.initiativeId, { kind: 'sent', sentMessage });
+      logger?.info?.({ address, occasion: prepared.context.occasion }, 'Sent an unprompted message');
+    } catch (err) {
+      logger?.error?.({ err, address }, 'Failed to send an unprompted message');
+      await memory.finishInitiative(prepared.initiativeId, { kind: 'not-sent' });
+    } finally {
+      try {
+        await sender.sendPresence?.(address, 'paused');
+      } catch (err) {
+        logger?.warn?.({ err }, 'Failed to send paused presence');
+      }
+    }
+  }
+
+  async function considerInitiative(completedTurnId = null) {
+    let prepared;
+    try {
+      prepared = await memory.prepareInitiative(completedTurnId);
+    } catch (err) {
+      logger?.warn?.({ err }, 'Could not consider an unprompted message');
+      return;
+    }
+    if (!prepared) return;
+
+    return enqueue(prepared.conversationAddress, () => sendInitiative(prepared)).catch((err) => {
+      logger?.error?.({ err }, 'Unhandled error while sending an unprompted message');
+    });
   }
 
   async function process(message) {
@@ -175,7 +239,16 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
     }
 
     try {
-      return await respond(message, observed?.addressedTurnId ?? null);
+      const result = await respond(message, observed?.addressedTurnId ?? null);
+      if (result?.completedTurnId === undefined || result.completedTurnId === null) return result;
+      // Both the remembering and the initiative run behind the FIFO slot, so
+      // neither delays the next message in this conversation.
+      return {
+        background: Promise.all([
+          result.background,
+          considerInitiative(result.completedTurnId),
+        ]).then(() => {}),
+      };
     } finally {
       try {
         await sender.sendPresence?.(message.conversationAddress, 'paused');
@@ -190,5 +263,14 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
     handleMessage(message) {
       return enqueue(message.conversationAddress, () => process(message));
     },
+
+    /**
+     * The second entry point, taken after a completed turn. Selection happens
+     * first because it is what decides who the recipient is; the send itself
+     * then runs in the FIFO slot of that *recipient*, never of the conversation
+     * that triggered it, so an unprompted message can never cut in front of a
+     * message arriving from the same person at the same moment.
+     */
+    considerInitiative,
   };
 }

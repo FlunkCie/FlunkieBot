@@ -237,8 +237,81 @@ export function createStore({ path, migrations }) {
          FROM turn_outcomes ORDER BY id`
     ),
 
+    // Initiatives: the sent-unprompted-message ledger behind the budget, the
+    // stop rule and the never-reuse-a-memory rule.
+    insertInitiative: db.prepare(
+      `INSERT INTO initiatives
+         (participant_id, conversation_id, occasion, memory_category, memory_id,
+          message_id, sent_at, replied_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`
+    ),
+    latestInitiatives: db.prepare(
+      `SELECT id, participant_id AS participantId, conversation_id AS conversationId,
+              occasion, memory_category AS memoryCategory, memory_id AS memoryId,
+              sent_at AS sentAt, replied_at AS repliedAt
+         FROM initiatives WHERE participant_id = ?
+        ORDER BY sent_at DESC, id DESC LIMIT ?`
+    ),
+    countInitiativesSince: db.prepare(
+      'SELECT COUNT(*) AS total FROM initiatives WHERE sent_at >= ?'
+    ),
+    listInitiatives: db.prepare(
+      `SELECT id, participant_id AS participantId, conversation_id AS conversationId,
+              occasion, memory_category AS memoryCategory, memory_id AS memoryId,
+              sent_at AS sentAt, replied_at AS repliedAt
+         FROM initiatives ORDER BY sent_at, id`
+    ),
+    markInitiativesReplied: db.prepare(
+      `UPDATE initiatives SET replied_at = ?
+        WHERE participant_id = ? AND conversation_id = ?
+          AND replied_at IS NULL AND sent_at <= ?`
+    ),
+
+    // Everyone who already started a direct-message thread with FlunkieBot.
+    // Conversations never expire, so this set stays derivable long after the
+    // messages that created it have been pruned.
+    listDirectThreads: db.prepare(
+      `SELECT a.participant_id AS participantId, c.id AS conversationId,
+              c.address, c.label
+         FROM conversations c
+         JOIN participant_aliases a ON a.alias_value = c.address
+        WHERE c.kind = 'direct'
+        ORDER BY a.participant_id, c.id DESC`
+    ),
+    lastIncomingMessageAt: db.prepare(
+      `SELECT MAX(observed_at) AS lastAt
+         FROM messages WHERE participant_id = ? AND direction = 'incoming'`
+    ),
+    authorLabelsOf: db.prepare(
+      `SELECT DISTINCT author_label AS label
+         FROM messages
+        WHERE participant_id = ? AND author_label IS NOT NULL AND author_label <> ''`
+    ),
+    messagesInConversationSince: db.prepare(
+      `SELECT id, participant_id AS participantId, body AS text,
+              observed_at AS observedAt
+         FROM messages
+        WHERE conversation_id = ? AND direction = 'incoming' AND observed_at >= ?
+        ORDER BY observed_at, id`
+    ),
+    // Ripeness is measured on created_at: occurred_at comes from the model and
+    // may be null, so it can never carry a scheduling decision.
+    listRipeUnusedEpisodes: db.prepare(
+      `SELECT e.id, e.reporter_participant_id AS reporterParticipantId,
+              e.body AS text, e.occurred_at AS occurredAt, e.created_at AS createdAt
+         FROM episodes e
+        WHERE e.created_at <= ?
+          AND NOT EXISTS (
+                SELECT 1 FROM initiatives i
+                 WHERE i.memory_category = 'episode' AND i.memory_id = e.id)
+        ORDER BY e.created_at, e.id`
+    ),
+
     reassignAliases: db.prepare(
       'UPDATE participant_aliases SET participant_id = ? WHERE participant_id = ?'
+    ),
+    reassignInitiatives: db.prepare(
+      'UPDATE initiatives SET participant_id = ? WHERE participant_id = ?'
     ),
     reassignMessages: db.prepare(
       'UPDATE messages SET participant_id = ? WHERE participant_id = ?'
@@ -301,6 +374,7 @@ export function createStore({ path, migrations }) {
     statements.reassignEpisodeLinks.run(survivingId, absorbedId);
     statements.dropDuplicateEvidenceLinks.run(absorbedId, survivingId);
     statements.reassignEvidenceLinks.run(survivingId, absorbedId);
+    statements.reassignInitiatives.run(survivingId, absorbedId);
     statements.reassignRedirects.run(survivingId, absorbedId);
     statements.insertRedirect.run(absorbedId, survivingId, now);
   });
@@ -531,6 +605,52 @@ export function createStore({ path, migrations }) {
     },
     listTurnOutcomes() {
       return statements.listTurnOutcomes.all();
+    },
+
+    // Initiatives
+    insertInitiative(initiative) {
+      const info = statements.insertInitiative.run(
+        initiative.participantId,
+        initiative.conversationId,
+        initiative.occasion,
+        initiative.memoryCategory ?? null,
+        initiative.memoryId ?? null,
+        initiative.messageId ?? null,
+        initiative.sentAt
+      );
+      return Number(info.lastInsertRowid);
+    },
+    latestInitiatives(participantId, limit) {
+      return statements.latestInitiatives.all(participantId, limit);
+    },
+    countInitiativesSince(since) {
+      return statements.countInitiativesSince.get(since).total;
+    },
+    listInitiatives() {
+      return statements.listInitiatives.all();
+    },
+    markInitiativesReplied(participantId, conversationId, repliedAt) {
+      return statements.markInitiativesReplied.run(
+        repliedAt,
+        participantId,
+        conversationId,
+        repliedAt
+      ).changes;
+    },
+    listDirectThreads() {
+      return statements.listDirectThreads.all();
+    },
+    lastIncomingMessageAt(participantId) {
+      return statements.lastIncomingMessageAt.get(participantId)?.lastAt ?? null;
+    },
+    authorLabelsOf(participantId) {
+      return statements.authorLabelsOf.all(participantId).map((row) => row.label);
+    },
+    messagesInConversationSince(conversationId, since) {
+      return statements.messagesInConversationSince.all(conversationId, since);
+    },
+    listRipeUnusedEpisodes(createdAtCutoff) {
+      return statements.listRipeUnusedEpisodes.all(createdAtCutoff);
     },
   };
 }

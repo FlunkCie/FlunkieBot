@@ -159,6 +159,44 @@ export const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 2,
+    name: 'initiatives',
+    up(db) {
+      // One row per unprompted message FlunkieBot actually sent. It is what
+      // makes the budget, the stop rule and "never reuse a memory" decidable;
+      // without it none of the three can be enforced.
+      //
+      // A durable memory is referenced by category plus id rather than by a
+      // foreign key, because the three memory kinds live in three tables. The
+      // pair is either wholly present or wholly absent: an initiative whose
+      // occasion is a group mention carries no memory at all.
+      db.exec(`
+        CREATE TABLE initiatives (
+          id INTEGER PRIMARY KEY,
+          participant_id TEXT NOT NULL REFERENCES participants(id),
+          conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+          occasion TEXT NOT NULL
+            CHECK (occasion IN ('discussed-while-absent', 'ripe-episode')),
+          memory_category TEXT
+            CHECK (memory_category IS NULL
+                     OR memory_category IN ('participant_claim', 'episode', 'interaction_pattern')),
+          memory_id INTEGER,
+          message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+          sent_at INTEGER NOT NULL,
+          replied_at INTEGER,
+          CHECK ((memory_category IS NULL) = (memory_id IS NULL))
+        );
+
+        CREATE INDEX initiatives_by_participant
+          ON initiatives (participant_id, sent_at, id);
+
+        CREATE INDEX initiatives_by_sent_at ON initiatives (sent_at);
+
+        CREATE INDEX initiatives_by_memory ON initiatives (memory_category, memory_id);
+      `);
+    },
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
