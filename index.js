@@ -1,5 +1,21 @@
 import 'dotenv/config';
 import { makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+
+// Baileys writes Signal Protocol session dumps directly to process.stdout,
+// bypassing the pino logger. Filter them at the stream level.
+const STDOUT_NOISE = /^Closing session:|^Decrypted message with closed session/;
+for (const stream of [process.stdout, process.stderr]) {
+  const _write = stream.write.bind(stream);
+  stream.write = function (chunk, encoding, callback) {
+    const str = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    if (STDOUT_NOISE.test(str.trimStart())) {
+      if (typeof encoding === 'function') encoding();
+      else if (typeof callback === 'function') callback();
+      return true;
+    }
+    return _write(chunk, encoding, callback);
+  };
+}
 import qrcode from 'qrcode-terminal';
 import { createChat } from './chat.js';
 import { createMemory, DEFAULT_DB_PATH } from './memory/index.js';

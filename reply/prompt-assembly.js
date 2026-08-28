@@ -46,9 +46,9 @@ function deliveryRules(gifsEnabled) {
 
   return [
     '# GIF',
-    'Je mag ook een GIF sturen in plaats van tekst. Zet daarvoor een regel met alleen [gif: <korte Engelse zoekterm>] als eigen los bericht, gescheiden door ' +
+    'Je mag soms een GIF sturen. Zet daarvoor een regel met alleen [gif: <korte Engelse zoekterm>] als eigen los bericht, gescheiden door ' +
       `${BUBBLE_MARKER} van al het andere.`,
-    'Gebruik dat spaarzaam, alleen als een reactie-gif echt beter landt dan woorden, zoals mensen ze echt gebruiken.',
+    'De meeste berichten hebben geen gif. Een gif is een zeldzame keuze, niet een standaard toevoeging. Stuur er hooguit één per vijf à tien berichten, en alleen als een reactie-gif echt harder landt dan elk woord. Uitzondering: als iemand expliciet om een gif vraagt, stuur je er altijd een.',
     'Combineer een gif nooit met tekst in hetzelfde bericht en leg nooit uit dat je er een stuurt.',
   ].join('\n');
 }

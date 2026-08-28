@@ -107,6 +107,7 @@ export function createMemory({
         label: 'extraction',
         retryPasses,
         retryDelayMs,
+        perProviderRetries: 2,
         sleep,
         logger,
         attempt: async (provider, immutableRequest) => {

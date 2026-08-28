@@ -15,9 +15,10 @@ export const logger = pino({
     : undefined,
 });
 
-// Baileys' own internal logger is very chatty at 'info'/'debug'; default it to
-// 'warn' so connection problems still surface without drowning them out.
+// Baileys' internal logger is silenced to 'fatal' by default: non-fatal errors
+// like init-query timeouts are handled gracefully by Baileys itself, and real
+// disconnects surface through our own connection.update handler.
 export const baileysLogger = logger.child(
   { module: 'baileys' },
-  { level: process.env.BAILEYS_LOG_LEVEL || 'warn' }
+  { level: process.env.BAILEYS_LOG_LEVEL || 'fatal' }
 );
