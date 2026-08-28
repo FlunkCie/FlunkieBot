@@ -63,7 +63,7 @@ See [CONTEXT.md](CONTEXT.md) for the domain model and the exact vocabulary this 
    Configuring all three gives the bot the most resilience against any single provider's free-tier rate limits.
    Free model slugs on Groq/OpenRouter change or get deprecated fairly often: if a provider starts erroring with a 404, check its current model list (see comments in `.env.example`) and update the `*_MODEL` variable.
 
-3. Edit `system-prompt.txt` to change FlunkieBot's identity, lore and voice. No code changes or rebuild needed on the host, just a restart.
+3. Edit `system-prompt.txt` to change FlunkieBot's identity, lore, voice and comic registers. No code changes or rebuild needed on the host, just a restart.
 
 ## Running
 
@@ -151,7 +151,7 @@ Whether FlunkieBot is actually funny stays a manual judgement in real conversati
 | `provider-fallback.js`        | Bounded provider fallback shared by reply generation and extraction                       |
 | `providers/*.js`              | Transport-only provider adapters (Groq, OpenRouter, Gemini) and error normalization       |
 | `personality.js`              | Loads `system-prompt.txt`                                                                 |
-| `system-prompt.txt`           | Hand-authored identity, fixed FlunkCie lore, and savage voice                             |
+| `system-prompt.txt`           | Hand-authored identity, fixed FlunkCie lore, savage voice, and comic registers            |
 | `logger.js`                   | Logging setup (pino, pretty-printed by default)                                           |
 | `lock.js`                     | Single-instance session lock                                                              |
 | `auth_info/`                  | Saved WhatsApp session credentials and lock file (git-ignored, do not share)               |

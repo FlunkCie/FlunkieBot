@@ -21,6 +21,12 @@ Chat orchestration (`chat.js`) issues no SQL, builds no prompts, validates no mo
 
 Modules are created at startup through factory functions in `index.js` with their real dependencies passed in. Do not add module-level provider clients or mutable test globals.
 
+## Personality prompt
+
+All hand-authored character text lives in `system-prompt.txt`, which `buildSystemInstruction()` prepends as one block before the code-owned sections.
+The `# REGISTER:` sections must stay inside that block: measured over 114 model calls, the same registers appended after the code-owned rules landed 7 of 10 instead of 10 of 10 (`data/fb-karakter-expressiever/report.md` in the firstmate workspace).
+Write registers next to the canon they must obey, and check every move against `KEEP IT COMING` and the lore list: a register written in isolation contradicted canon and made FlunkieBot advise moderation.
+
 ## Tests
 
 `npm test` runs the whole suite on Node's built-in runner, entirely offline: no WhatsApp credentials, no live provider keys, no network.
