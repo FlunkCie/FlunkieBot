@@ -7,4 +7,7 @@ RUN npm ci --omit=dev
 
 COPY . .
 
+# The SQLite database lives here and is bind-mounted from the host in compose.
+RUN mkdir -p /app/data
+
 CMD ["node", "index.js"]

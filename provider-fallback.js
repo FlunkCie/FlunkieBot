@@ -27,6 +27,10 @@ export async function runWithProviderFallback({
   sleep = defaultSleep,
   logger,
 }) {
+  if (!providers || providers.length === 0) {
+    throw new ProviderFallbackExhaustedError(label, 0, ['no providers configured']);
+  }
+
   let failures = [];
 
   for (let pass = 1; pass <= retryPasses; pass += 1) {
