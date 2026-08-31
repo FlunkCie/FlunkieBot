@@ -280,6 +280,86 @@ export function createStore({ path, migrations }) {
     reassignEvidenceLinks: db.prepare(
       'UPDATE evidence_snapshot_participants SET participant_id = ? WHERE participant_id = ?'
     ),
+
+    // Dashboard reads
+    listAllConversations: db.prepare(
+      `SELECT id, address, kind, label, created_at AS createdAt FROM conversations ORDER BY created_at DESC`
+    ),
+    listMessagesPageAll: db.prepare(
+      `SELECT id, conversation_id AS conversationId, participant_id AS participantId,
+              direction, observed_at AS observedAt, addressed, body AS text, author_label AS authorLabel
+         FROM messages ORDER BY observed_at DESC, id DESC LIMIT ? OFFSET ?`
+    ),
+    listMessagesPageByConv: db.prepare(
+      `SELECT id, conversation_id AS conversationId, participant_id AS participantId,
+              direction, observed_at AS observedAt, addressed, body AS text, author_label AS authorLabel
+         FROM messages WHERE conversation_id = ?
+         ORDER BY observed_at DESC, id DESC LIMIT ? OFFSET ?`
+    ),
+    countMessagesByConv: db.prepare(
+      `SELECT COUNT(*) AS total FROM messages WHERE conversation_id = ?`
+    ),
+    listAllParticipants: db.prepare(
+      `SELECT id, created_at AS createdAt FROM participants ORDER BY created_at DESC`
+    ),
+    countParticipants: db.prepare(`SELECT COUNT(*) AS total FROM participants`),
+    countClaims: db.prepare(`SELECT COUNT(*) AS total FROM participant_claims`),
+    countEpisodes: db.prepare(`SELECT COUNT(*) AS total FROM episodes`),
+    countPatterns: db.prepare(`SELECT COUNT(*) AS total FROM interaction_patterns`),
+    extractionRunCounts: db.prepare(
+      `SELECT state, COUNT(*) AS total FROM extraction_runs GROUP BY state`
+    ),
+    turnOutcomeCounts: db.prepare(
+      `SELECT kind, COUNT(*) AS total FROM turn_outcomes GROUP BY kind`
+    ),
+    messagesByDay: db.prepare(
+      `SELECT strftime('%Y-%m-%d', observed_at / 1000, 'unixepoch') AS day, COUNT(*) AS total
+         FROM messages WHERE observed_at > ? AND direction = 'incoming'
+         GROUP BY day ORDER BY day`
+    ),
+    extractionByDay: db.prepare(
+      `SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day, state, COUNT(*) AS total
+         FROM extraction_runs WHERE created_at > ?
+         GROUP BY day, state ORDER BY day`
+    ),
+    listExtractionRunsPage: db.prepare(
+      `SELECT r.id, r.state, r.created_at AS createdAt, r.updated_at AS updatedAt,
+              c.label AS conversationLabel, c.address AS conversationAddress, c.kind AS conversationKind
+         FROM extraction_runs r JOIN conversations c ON c.id = r.conversation_id
+         ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?`
+    ),
+    countExtractionRuns: db.prepare(`SELECT COUNT(*) AS total FROM extraction_runs`),
+
+    // Reset all memory
+    deleteAllEvidenceLinks: db.prepare('DELETE FROM evidence_snapshot_participants'),
+    deleteAllEvidence: db.prepare('DELETE FROM evidence_snapshots'),
+    deleteAllEpisodeParticipants: db.prepare('DELETE FROM episode_participants'),
+    deleteAllClaims: db.prepare('DELETE FROM participant_claims'),
+    deleteAllEpisodes: db.prepare('DELETE FROM episodes'),
+    deleteAllPatterns: db.prepare('DELETE FROM interaction_patterns'),
+
+    // Deletion helpers
+    purgeClaimEvidenceLinks: db.prepare(
+      `DELETE FROM evidence_snapshot_participants
+          WHERE evidence_id IN (SELECT id FROM evidence_snapshots WHERE claim_id = ?)`
+    ),
+    purgeClaimEvidence: db.prepare(`DELETE FROM evidence_snapshots WHERE claim_id = ?`),
+    purgeClaimRow: db.prepare(`DELETE FROM participant_claims WHERE id = ?`),
+    purgeEpisodeEvidenceLinks: db.prepare(
+      `DELETE FROM evidence_snapshot_participants
+          WHERE evidence_id IN (SELECT id FROM evidence_snapshots WHERE episode_id = ?)`
+    ),
+    purgeEpisodeEvidence: db.prepare(`DELETE FROM evidence_snapshots WHERE episode_id = ?`),
+    purgeEpisodeParticipants: db.prepare(`DELETE FROM episode_participants WHERE episode_id = ?`),
+    purgeEpisodeRow: db.prepare(`DELETE FROM episodes WHERE id = ?`),
+    purgePatternEvidenceLinks: db.prepare(
+      `DELETE FROM evidence_snapshot_participants
+          WHERE evidence_id IN (SELECT id FROM evidence_snapshots WHERE interaction_pattern_id = ?)`
+    ),
+    purgePatternEvidence: db.prepare(
+      `DELETE FROM evidence_snapshots WHERE interaction_pattern_id = ?`
+    ),
+    purgePatternRow: db.prepare(`DELETE FROM interaction_patterns WHERE id = ?`),
   };
 
   function transaction(fn) {
@@ -303,6 +383,34 @@ export function createStore({ path, migrations }) {
     statements.reassignEvidenceLinks.run(survivingId, absorbedId);
     statements.reassignRedirects.run(survivingId, absorbedId);
     statements.insertRedirect.run(absorbedId, survivingId, now);
+  });
+
+  const resetAllMemory = db.transaction(() => {
+    statements.deleteAllEvidenceLinks.run();
+    statements.deleteAllEvidence.run();
+    statements.deleteAllEpisodeParticipants.run();
+    statements.deleteAllClaims.run();
+    statements.deleteAllEpisodes.run();
+    statements.deleteAllPatterns.run();
+  });
+
+  const deleteClaim = db.transaction((id) => {
+    statements.purgeClaimEvidenceLinks.run(id);
+    statements.purgeClaimEvidence.run(id);
+    statements.purgeClaimRow.run(id);
+  });
+
+  const deleteEpisode = db.transaction((id) => {
+    statements.purgeEpisodeEvidenceLinks.run(id);
+    statements.purgeEpisodeEvidence.run(id);
+    statements.purgeEpisodeParticipants.run(id);
+    statements.purgeEpisodeRow.run(id);
+  });
+
+  const deletePattern = db.transaction((id) => {
+    statements.purgePatternEvidenceLinks.run(id);
+    statements.purgePatternEvidence.run(id);
+    statements.purgePatternRow.run(id);
   });
 
   return {
@@ -532,5 +640,33 @@ export function createStore({ path, migrations }) {
     listTurnOutcomes() {
       return statements.listTurnOutcomes.all();
     },
+
+    // Dashboard reads
+    listAllConversations() { return statements.listAllConversations.all(); },
+    listMessagesPage(limit, offset, conversationId) {
+      return conversationId != null
+        ? statements.listMessagesPageByConv.all(conversationId, limit, offset)
+        : statements.listMessagesPageAll.all(limit, offset);
+    },
+    countMessagesPage(conversationId) {
+      return conversationId != null
+        ? statements.countMessagesByConv.get(conversationId).total
+        : statements.countMessages.get().total;
+    },
+    listAllParticipants() { return statements.listAllParticipants.all(); },
+    countParticipants() { return statements.countParticipants.get().total; },
+    countClaims() { return statements.countClaims.get().total; },
+    countEpisodes() { return statements.countEpisodes.get().total; },
+    countPatterns() { return statements.countPatterns.get().total; },
+    extractionRunCounts() { return statements.extractionRunCounts.all(); },
+    turnOutcomeCounts() { return statements.turnOutcomeCounts.all(); },
+    messagesByDay(since) { return statements.messagesByDay.all(since); },
+    extractionByDay(since) { return statements.extractionByDay.all(since); },
+    listExtractionRunsPage(limit, offset) { return statements.listExtractionRunsPage.all(limit, offset); },
+    countExtractionRuns() { return statements.countExtractionRuns.get().total; },
+    deleteClaim(id) { deleteClaim(id); },
+    deleteEpisode(id) { deleteEpisode(id); },
+    deletePattern(id) { deletePattern(id); },
+    resetAllMemory() { resetAllMemory(); },
   };
 }

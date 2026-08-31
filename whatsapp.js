@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { jidDecode } from '@whiskeysockets/baileys';
 import { sendNaturally } from './natural-send.js';
 
@@ -61,6 +62,15 @@ export function containsAddressKeyword(text) {
   if (!text) return false;
   const lower = text.toLowerCase();
   return ADDRESS_KEYWORDS.some((keyword) => lower.includes(keyword));
+}
+
+// Any mention of the sacred hymn triggers an automatic broadcast.
+const ANTHEM_KEYWORDS = ['anthem', 'lied', 'nummer', 'hymne', 'hymn', 'song', 'muziek', 'gasolina', 'baila'];
+
+export function containsAnthemKeyword(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return ANTHEM_KEYWORDS.some((keyword) => lower.includes(keyword));
 }
 
 /**
@@ -131,7 +141,7 @@ export function normalizeEnvelope(envelope, { botJids, now }) {
 export function createWhatsAppSender(
   resolveSocket,
   clock = () => Date.now(),
-  { gifSearch, logger, sleep } = {}
+  { gifSearch, anthemPath, logger, sleep } = {}
 ) {
   function socket() {
     const sock = resolveSocket();
@@ -140,6 +150,16 @@ export function createWhatsAppSender(
   }
 
   return {
+    async sendAudio(conversationAddress, { quoted } = {}) {
+      const path = anthemPath || '/app/baila.mp3';
+      const options = quoted ? { quoted } : undefined;
+      return socket().sendMessage(
+        conversationAddress,
+        { audio: readFileSync(path), mimetype: 'audio/mpeg', ptt: false },
+        options
+      );
+    },
+
     async sendText(conversationAddress, text, { quoted } = {}) {
       const sent = await sendNaturally(socket(), conversationAddress, text, {
         quoted,

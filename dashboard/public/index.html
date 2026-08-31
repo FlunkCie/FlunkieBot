@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlunkieBot Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: {
+      slate: { 950:'#0B0B0E', 900:'#16161C', 800:'#1E1E26', 700:'#27272e',
+               600:'rgba(255,241,194,0.28)', 500:'rgba(255,241,194,0.42)',
+               400:'rgba(255,241,194,0.58)', 300:'rgba(255,241,194,0.74)',
+               200:'#FFF1C2', 100:'#FFF1C2' },
+      indigo: { 800:'rgba(245,184,0,0.15)', 700:'#E0A500', 600:'#F5B800',
+                500:'#FFD93D', 400:'#E0A500', 300:'#FFD93D' },
+      sky:    { 400:'#1E90FF' },
+      emerald:{ 400:'#29D87B', 500:'#29D87B', 700:'#1e9e5a' },
+      amber:  { 400:'#FFD93D', 500:'#F5B800' },
+      yellow: { 400:'#F5B800' },
+    }}}}
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(245,184,0,0.3); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(245,184,0,0.55); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased" x-data="app()" x-init="init()" x-cloak>
+
+  <!-- ── Loading ── -->
+  <div x-show="page === 'loading'" class="flex items-center justify-center h-screen">
+    <div class="text-center">
+      <div class="w-7 h-7 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+      <p class="text-slate-500 text-sm">Connecting…</p>
+    </div>
+  </div>
+
+  <!-- ── Login ── -->
+  <div x-show="page === 'login'" class="flex items-center justify-center h-screen bg-slate-950">
+    <div class="w-full max-w-sm px-4">
+      <div class="text-center mb-8">
+        <div class="text-5xl mb-4">🤖</div>
+        <h1 class="text-2xl font-bold text-slate-100">FlunkieBot</h1>
+        <p class="text-slate-500 text-sm mt-1">Dashboard</p>
+      </div>
+      <div class="bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-2xl">
+        <form @submit.prevent="login()">
+          <label class="block text-sm font-medium text-slate-400 mb-2">Password</label>
+          <input
+            type="password"
+            x-model="password"
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+            placeholder="Enter dashboard password"
+            autofocus
+          >
+          <p x-show="authError" x-text="authError" class="text-red-400 text-xs mt-2"></p>
+          <button
+            type="submit"
+            class="w-full mt-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-[#0B0B0E] font-bold rounded-xl py-2.5 text-sm transition-colors"
+          >Sign in</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── App Shell ── -->
+  <div x-show="page !== 'login' && page !== 'loading'" class="flex h-screen overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="w-56 shrink-0 flex flex-col bg-slate-900 border-r border-slate-800">
+      <div class="px-4 py-4 border-b border-slate-800 flex items-center gap-2.5">
+        <span class="text-2xl">🤖</span>
+        <div class="min-w-0">
+          <p class="font-semibold text-slate-100 text-sm leading-tight truncate">FlunkieBot</p>
+          <p class="text-xs text-slate-500">Dashboard</p>
+        </div>
+      </div>
+      <nav class="flex-1 p-2 space-y-0.5 overflow-y-auto">
+        <template x-for="item in navItems" :key="item.id">
+          <button
+            @click="navigate(item.id)"
+            class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left"
+            :class="page === item.id
+              ? 'bg-indigo-500/15 text-indigo-400 font-medium'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'"
+          >
+            <span x-html="item.icon" class="w-4 h-4 shrink-0"></span>
+            <span x-text="item.label" class="truncate"></span>
+          </button>
+        </template>
+      </nav>
+      <div class="px-4 py-3 border-t border-slate-800">
+        <p class="text-xs text-slate-700">FlunkieBot v1.0</p>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="flex-1 min-h-0" :class="(page === 'messages' || page === 'logs') ? 'overflow-hidden' : 'overflow-y-auto'">
+
+      <!-- ── OVERVIEW ── -->
+      <div x-show="page === 'overview'" class="p-6 max-w-5xl mx-auto">
+        <div class="mb-6">
+          <h2 class="text-xl font-semibold text-slate-100">Overview</h2>
+          <p class="text-slate-500 text-sm mt-0.5">Bot health and activity at a glance</p>
+        </div>
+
+        <div x-show="overview.loading" class="flex justify-center py-16">
+          <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+
+        <template x-if="overview.data && !overview.loading">
+          <div>
+            <!-- Stat cards -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+              <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+                <p class="text-xs text-slate-500 uppercase tracking-wider font-medium">Messages</p>
+                <p class="text-2xl font-bold text-slate-100 mt-1.5" x-text="overview.data.messages.toLocaleString()"></p>
+                <p class="text-xs text-slate-600 mt-0.5">stored (7-day)</p>
+              </div>
+              <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+                <p class="text-xs text-slate-500 uppercase tracking-wider font-medium">Participants</p>
+                <p class="text-2xl font-bold text-slate-100 mt-1.5" x-text="overview.data.participants.toLocaleString()"></p>
+                <p class="text-xs text-slate-600 mt-0.5">known identities</p>
+              </div>
+              <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+                <p class="text-xs text-slate-500 uppercase tracking-wider font-medium">Memories</p>
+                <p class="text-2xl font-bold text-slate-100 mt-1.5" x-text="(overview.data.claims + overview.data.episodes + overview.data.patterns).toLocaleString()"></p>
+                <p class="text-xs text-slate-600 mt-0.5" x-text="`${overview.data.claims}c · ${overview.data.episodes}e · ${overview.data.patterns}p`"></p>
+              </div>
+              <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
+                <p class="text-xs text-slate-500 uppercase tracking-wider font-medium">Extraction</p>
+                <p class="text-2xl font-bold mt-1.5"
+                   :class="(overview.data.extractionSuccessRate ?? 100) >= 80 ? 'text-emerald-400' : 'text-orange-400'"
+                   x-text="overview.data.extractionSuccessRate !== null ? overview.data.extractionSuccessRate + '%' : '—'"></p>
+                <p class="text-xs text-slate-600 mt-0.5">success rate</p>
+              </div>
+            </div>
+
+            <!-- Detail panels -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                <p class="text-xs text-slate-500 uppercase tracking-wider font-medium mb-3">Turn outcomes</p>
+                <div class="space-y-2.5">
+                  <div class="flex justify-between items-center">
+                    <span class="flex items-center gap-2 text-sm text-slate-400">
+                      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>Replies sent
+                    </span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="(overview.data.turnOutcomes['reply-sent'] ?? 0).toLocaleString()"></span>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span class="flex items-center gap-2 text-sm text-slate-400">
+                      <span class="w-2 h-2 rounded-full bg-slate-600"></span>Silence
+                    </span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="(overview.data.turnOutcomes['intentional-silence'] ?? 0).toLocaleString()"></span>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span class="flex items-center gap-2 text-sm text-slate-400">
+                      <span class="w-2 h-2 rounded-full bg-red-500"></span>Failed
+                    </span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="(overview.data.turnOutcomes['failed'] ?? 0).toLocaleString()"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                <p class="text-xs text-slate-500 uppercase tracking-wider font-medium mb-3">Extraction runs</p>
+                <div class="space-y-2.5">
+                  <div class="flex justify-between items-center">
+                    <span class="flex items-center gap-2 text-sm text-slate-400">
+                      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>Succeeded
+                    </span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="(overview.data.extractionRuns.succeeded ?? 0).toLocaleString()"></span>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span class="flex items-center gap-2 text-sm text-slate-400">
+                      <span class="w-2 h-2 rounded-full bg-amber-500"></span>Pending
+                    </span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="(overview.data.extractionRuns.pending ?? 0).toLocaleString()"></span>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span class="flex items-center gap-2 text-sm text-slate-400">
+                      <span class="w-2 h-2 rounded-full bg-red-500"></span>Failed
+                    </span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="(overview.data.extractionRuns.failed ?? 0).toLocaleString()"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                <p class="text-xs text-slate-500 uppercase tracking-wider font-medium mb-3">Memory store</p>
+                <div class="space-y-2.5">
+                  <div class="flex justify-between items-center">
+                    <span class="text-sm text-slate-400">Claims</span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="overview.data.claims.toLocaleString()"></span>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span class="text-sm text-slate-400">Episodes</span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="overview.data.episodes.toLocaleString()"></span>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span class="text-sm text-slate-400">Patterns</span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="overview.data.patterns.toLocaleString()"></span>
+                  </div>
+                  <div class="flex justify-between items-center border-t border-slate-800 pt-2.5">
+                    <span class="text-sm text-slate-400">Evidence</span>
+                    <span class="font-semibold text-slate-200 tabular-nums" x-text="overview.data.evidence.toLocaleString()"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ── MESSAGES ── -->
+      <div x-show="page === 'messages'" class="flex h-full">
+
+        <!-- Conversation list sidebar -->
+        <div class="w-64 shrink-0 border-r border-slate-800 flex flex-col">
+          <div class="px-4 py-4 border-b border-slate-800 shrink-0">
+            <p class="font-semibold text-slate-100 text-sm">Messages</p>
+            <p class="text-xs text-slate-600 mt-0.5">7-day window</p>
+          </div>
+
+          <div x-show="messages.convLoading" class="flex justify-center py-6">
+            <div class="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+
+          <div class="flex-1 overflow-y-auto">
+            <template x-for="conv in messages.conversations" :key="conv.id">
+              <button
+                @click="selectConversation(conv)"
+                class="w-full text-left px-4 py-3.5 border-b border-slate-800/60 transition-colors relative"
+                :class="messages.selectedConv?.id === conv.id
+                  ? 'bg-indigo-500/10'
+                  : 'hover:bg-slate-800/40'"
+              >
+                <span x-show="messages.selectedConv?.id === conv.id"
+                  class="absolute left-0 top-0 bottom-0 w-0.5 bg-indigo-500 rounded-r"></span>
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span class="text-base shrink-0" x-text="conv.kind === 'group' ? '👥' : '💬'"></span>
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium truncate"
+                       :class="messages.selectedConv?.id === conv.id ? 'text-indigo-300' : 'text-slate-200'"
+                       x-text="conv.label || formatAddress(conv.address)"></p>
+                    <p class="text-xs text-slate-600 capitalize mt-0.5" x-text="conv.kind"></p>
+                  </div>
+                </div>
+              </button>
+            </template>
+            <div x-show="!messages.convLoading && messages.conversations.length === 0"
+                 class="px-4 py-8 text-center text-slate-600 text-xs">No conversations yet</div>
+          </div>
+        </div>
+
+        <!-- Chat area -->
+        <div class="flex-1 flex flex-col min-w-0">
+
+          <!-- No conversation selected -->
+          <div x-show="!messages.selectedConv" class="flex-1 flex items-center justify-center">
+            <div class="text-center">
+              <p class="text-3xl mb-3">💬</p>
+              <p class="text-slate-500 text-sm">Select a conversation</p>
+            </div>
+          </div>
+
+          <template x-if="messages.selectedConv">
+            <div class="flex flex-col h-full">
+              <!-- Chat header -->
+              <div class="shrink-0 border-b border-slate-800 px-5 py-3 flex items-center gap-3">
+                <span class="text-lg" x-text="messages.selectedConv.kind === 'group' ? '👥' : '💬'"></span>
+                <div class="flex-1 min-w-0">
+                  <p class="font-semibold text-slate-100 text-sm truncate"
+                     x-text="messages.selectedConv.label || formatAddress(messages.selectedConv.address)"></p>
+                  <p class="text-xs text-slate-500 mt-0.5"
+                     x-text="`${messages.selectedConv.kind} · ${messages.total.toLocaleString()} messages stored`"></p>
+                </div>
+                <button
+                  x-show="messages.hasMore"
+                  @click="loadMoreMessages()"
+                  :disabled="messages.loading"
+                  class="shrink-0 text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-40 px-2 py-1 rounded-lg hover:bg-indigo-500/10 transition-colors"
+                >↑ Load older</button>
+              </div>
+
+              <!-- Messages -->
+              <div id="chat-area" class="flex-1 overflow-y-auto px-5 py-4">
+                <div x-show="messages.loading" class="flex justify-center py-8">
+                  <div class="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+
+                <div class="space-y-1">
+                  <template x-for="(msg, idx) in messages.items" :key="msg.id">
+                    <div>
+                      <!-- Date separator when day changes -->
+                      <div x-show="idx === 0 || !sameDay(messages.items[idx-1]?.observedAt, msg.observedAt)"
+                           class="flex items-center gap-3 my-4">
+                        <div class="flex-1 h-px bg-slate-800"></div>
+                        <span class="text-xs text-slate-600 shrink-0"
+                              x-text="formatDay(msg.observedAt)"></span>
+                        <div class="flex-1 h-px bg-slate-800"></div>
+                      </div>
+
+                      <!-- Bubble row -->
+                      <div class="flex mb-1"
+                           :class="msg.direction === 'outgoing' ? 'justify-end' : 'justify-start'">
+                        <div class="max-w-xs sm:max-w-sm lg:max-w-md xl:max-w-lg">
+                          <!-- Author label (incoming only, skip if same author as prev) -->
+                          <p x-show="msg.direction === 'incoming' && msg.authorLabel &&
+                                     (idx === 0 || messages.items[idx-1]?.direction !== 'incoming' || messages.items[idx-1]?.authorLabel !== msg.authorLabel)"
+                             class="text-xs text-indigo-400 font-medium mb-1 ml-1 truncate"
+                             x-text="msg.authorLabel"></p>
+
+                          <!-- Outgoing bubbles (split on |||) -->
+                          <template x-if="msg.direction === 'outgoing'">
+                            <div class="space-y-1.5">
+                              <template x-for="(bubble, bi) in splitBubbles(msg.text)" :key="bi">
+                                <div class="px-3.5 py-2 rounded-2xl text-sm leading-relaxed break-words bg-[#F5B800] text-[#0B0B0E] font-medium rounded-br-md"
+                                     x-text="bubble"></div>
+                              </template>
+                            </div>
+                          </template>
+                          <!-- Incoming bubble -->
+                          <template x-if="msg.direction !== 'outgoing'">
+                            <div class="px-3.5 py-2 rounded-2xl text-sm leading-relaxed break-words"
+                                 :class="msg.addressed
+                                   ? 'bg-slate-800 text-slate-100 rounded-bl-md ring-1 ring-inset ring-indigo-500/25'
+                                   : 'bg-slate-800/70 text-slate-300 rounded-bl-md'"
+                                 x-text="msg.text">
+                            </div>
+                          </template>
+
+                          <!-- Timestamp (show when day or author changes, or last in group) -->
+                          <p class="text-xs text-slate-600 mt-1 px-1"
+                             :class="msg.direction === 'outgoing' ? 'text-right' : 'text-left'"
+                             x-show="idx === messages.items.length - 1 ||
+                                     messages.items[idx+1]?.direction !== msg.direction ||
+                                     !sameDay(msg.observedAt, messages.items[idx+1]?.observedAt)"
+                             x-text="formatTime(msg.observedAt)"></p>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <div x-show="!messages.loading && messages.items.length === 0"
+                     class="flex items-center justify-center py-12">
+                  <p class="text-slate-600 text-sm">No messages in this conversation</p>
+                </div>
+              </div>
+
+              <!-- Send bar -->
+              <div class="shrink-0 border-t border-slate-800 p-3 flex gap-2 items-center">
+
+                <!-- AI trigger button + popup -->
+                <div class="relative shrink-0" x-data="{ open: false }">
+                  <button
+                    @click="open = !open"
+                    @click.outside="open = false"
+                    title="Trigger AI response"
+                    class="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-700 text-slate-400 hover:text-indigo-400 hover:border-indigo-500/40 transition-colors text-base"
+                  >⚡</button>
+
+                  <div x-show="open" x-cloak
+                       class="absolute bottom-11 left-0 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-20">
+                    <button
+                      @click="triggerAI('normal'); open = false"
+                      class="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                    ><span>🤖</span> Normal reply</button>
+
+                    <div class="px-3 py-2.5 border-t border-slate-800">
+                      <p class="text-xs text-slate-500 mb-1.5 font-medium">GIF</p>
+                      <div class="flex gap-1.5">
+                        <input type="text" x-model="messages.gifQuery"
+                               placeholder="search term…"
+                               @keydown.enter="triggerAI('gif'); open = false"
+                               class="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                        <button
+                          @click="triggerAI('gif'); open = false"
+                          class="shrink-0 bg-indigo-600 hover:bg-indigo-500 text-[#0B0B0E] font-bold px-2.5 py-1 rounded-lg text-xs transition-colors"
+                        >Send</button>
+                      </div>
+                    </div>
+
+                    <button
+                      @click="triggerAI('anthem'); open = false"
+                      class="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-800 flex items-center gap-2 transition-colors border-t border-slate-800"
+                    ><span>🎵</span> Anthem</button>
+                  </div>
+                </div>
+
+                <!-- Direct send -->
+                <input
+                  type="text"
+                  x-model="messages.draftText"
+                  @keydown.enter="sendDirect()"
+                  placeholder="Send as bot…"
+                  class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                <button
+                  @click="sendDirect()"
+                  :disabled="!messages.draftText.trim() || messages.injecting"
+                  class="shrink-0 bg-indigo-600 hover:bg-indigo-500 text-[#0B0B0E] font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-40 transition-colors"
+                  x-text="messages.injecting ? '…' : 'Send'"
+                ></button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ── MEMORIES ── -->
+      <div x-show="page === 'memories'" class="p-6 max-w-4xl mx-auto">
+        <div class="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-xl font-semibold text-slate-100">Memories</h2>
+            <p class="text-slate-500 text-sm mt-0.5">Durable memories extracted from conversations</p>
+          </div>
+          <button
+            x-data="{ confirm: false }"
+            @click.outside="confirm = false"
+            @click="confirm ? resetAllMemory() : confirm = true"
+            class="shrink-0 px-3 py-1.5 text-xs font-medium border rounded-lg transition-all"
+            :class="confirm
+              ? 'bg-red-700 text-white border-red-600'
+              : 'text-slate-500 border-slate-700 hover:text-red-400 hover:border-red-700'"
+            x-text="confirm ? '⚠ Confirm — erase everything?' : 'Reset all memory'"
+          ></button>
+        </div>
+
+        <!-- Tab bar -->
+        <div class="flex bg-slate-900 border border-slate-800 rounded-xl p-1 w-fit mb-5">
+          <template x-for="tab in [{id:'claims',label:'Claims'},{id:'episodes',label:'Episodes'},{id:'patterns',label:'Patterns'}]" :key="tab.id">
+            <button
+              @click="switchMemoryTab(tab.id)"
+              class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
+              :class="memories.tab === tab.id ? 'bg-indigo-600 text-[#0B0B0E] font-bold shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+              x-text="tab.label"
+            ></button>
+          </template>
+        </div>
+
+        <div x-show="memories.loading" class="flex justify-center py-16">
+          <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+
+        <!-- Claims -->
+        <div x-show="memories.tab === 'claims' && !memories.loading" class="space-y-3">
+          <p x-show="!memories.claims" class="text-slate-600 text-sm py-8 text-center">Loading…</p>
+          <p x-show="memories.claims && memories.claims.length === 0" class="text-slate-600 text-sm py-8 text-center">No claims extracted yet</p>
+          <template x-for="item in memories.claims ?? []" :key="item.id">
+            <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-4 transition-colors">
+              <div class="flex items-start gap-4">
+                <div class="flex-1 min-w-0">
+                  <p class="text-slate-100 text-sm leading-relaxed" x-text="item.text"></p>
+                  <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                    <span class="text-xs text-slate-600 font-mono" x-text="`subject: ${shortId(item.subjectParticipantId)}`"></span>
+                    <span x-show="item.occurredAt" class="text-xs text-slate-600" x-text="`occurred: ${formatShortTime(item.occurredAt)}`"></span>
+                    <span class="text-xs text-slate-600" x-text="`added: ${formatShortTime(item.createdAt)}`"></span>
+                  </div>
+                  <blockquote x-show="item.evidence?.excerpt" class="mt-2 pl-3 border-l-2 border-indigo-800 text-xs text-slate-500 italic leading-relaxed" x-text="truncate(item.evidence?.excerpt, 180)"></blockquote>
+                </div>
+                <button
+                  x-data="{ confirm: false }"
+                  @click.outside="confirm = false"
+                  @click="confirm ? (deleteMemory('claims', item.id), confirm = false) : confirm = true"
+                  class="shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                  :class="confirm ? 'bg-red-600 text-white' : 'bg-transparent text-slate-600 hover:text-slate-300 border border-slate-700 hover:border-slate-600'"
+                  x-text="confirm ? 'Sure?' : 'Delete'"
+                ></button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Episodes -->
+        <div x-show="memories.tab === 'episodes' && !memories.loading" class="space-y-3">
+          <p x-show="!memories.episodes" class="text-slate-600 text-sm py-8 text-center">Loading…</p>
+          <p x-show="memories.episodes && memories.episodes.length === 0" class="text-slate-600 text-sm py-8 text-center">No episodes extracted yet</p>
+          <template x-for="item in memories.episodes ?? []" :key="item.id">
+            <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-4 transition-colors">
+              <div class="flex items-start gap-4">
+                <div class="flex-1 min-w-0">
+                  <p class="text-slate-100 text-sm leading-relaxed" x-text="item.text"></p>
+                  <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                    <span x-show="item.participantIds?.length" class="text-xs text-slate-600" x-text="`${item.participantIds.length} participant(s)`"></span>
+                    <span x-show="item.occurredAt" class="text-xs text-slate-600" x-text="`occurred: ${formatShortTime(item.occurredAt)}`"></span>
+                    <span class="text-xs text-slate-600" x-text="`added: ${formatShortTime(item.createdAt)}`"></span>
+                  </div>
+                  <blockquote x-show="item.evidence?.excerpt" class="mt-2 pl-3 border-l-2 border-indigo-800 text-xs text-slate-500 italic leading-relaxed" x-text="truncate(item.evidence?.excerpt, 180)"></blockquote>
+                </div>
+                <button
+                  x-data="{ confirm: false }"
+                  @click.outside="confirm = false"
+                  @click="confirm ? (deleteMemory('episodes', item.id), confirm = false) : confirm = true"
+                  class="shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                  :class="confirm ? 'bg-red-600 text-white' : 'bg-transparent text-slate-600 hover:text-slate-300 border border-slate-700 hover:border-slate-600'"
+                  x-text="confirm ? 'Sure?' : 'Delete'"
+                ></button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Patterns -->
+        <div x-show="memories.tab === 'patterns' && !memories.loading" class="space-y-3">
+          <p x-show="!memories.patterns" class="text-slate-600 text-sm py-8 text-center">Loading…</p>
+          <p x-show="memories.patterns && memories.patterns.length === 0" class="text-slate-600 text-sm py-8 text-center">No patterns extracted yet</p>
+          <template x-for="item in memories.patterns ?? []" :key="item.id">
+            <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-4 transition-colors">
+              <div class="flex items-start gap-4">
+                <div class="flex-1 min-w-0">
+                  <p class="text-slate-100 text-sm leading-relaxed" x-text="item.text"></p>
+                  <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                    <span class="text-xs text-slate-600 font-mono" x-text="`participant: ${shortId(item.participantId)}`"></span>
+                    <span x-show="item.occurredAt" class="text-xs text-slate-600" x-text="`occurred: ${formatShortTime(item.occurredAt)}`"></span>
+                    <span class="text-xs text-slate-600" x-text="`added: ${formatShortTime(item.createdAt)}`"></span>
+                  </div>
+                  <blockquote x-show="item.evidence?.excerpt" class="mt-2 pl-3 border-l-2 border-indigo-800 text-xs text-slate-500 italic leading-relaxed" x-text="truncate(item.evidence?.excerpt, 180)"></blockquote>
+                </div>
+                <button
+                  x-data="{ confirm: false }"
+                  @click.outside="confirm = false"
+                  @click="confirm ? (deleteMemory('patterns', item.id), confirm = false) : confirm = true"
+                  class="shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                  :class="confirm ? 'bg-red-600 text-white' : 'bg-transparent text-slate-600 hover:text-slate-300 border border-slate-700 hover:border-slate-600'"
+                  x-text="confirm ? 'Sure?' : 'Delete'"
+                ></button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ── PARTICIPANTS ── -->
+      <div x-show="page === 'participants'" class="p-6 max-w-4xl mx-auto">
+        <div class="mb-5">
+          <h2 class="text-xl font-semibold text-slate-100">Participants</h2>
+          <p class="text-slate-500 text-sm mt-0.5">Resolved identities and their WhatsApp aliases</p>
+        </div>
+
+        <div x-show="participants.loading" class="flex justify-center py-16">
+          <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+
+        <template x-if="participants.data && !participants.loading">
+          <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-slate-800">
+                    <th class="text-left px-4 py-3 text-slate-500 font-medium text-xs">Participant ID</th>
+                    <th class="text-left px-4 py-3 text-slate-500 font-medium text-xs">Phone numbers</th>
+                    <th class="text-left px-4 py-3 text-slate-500 font-medium text-xs">LID aliases</th>
+                    <th class="text-left px-4 py-3 text-slate-500 font-medium text-xs whitespace-nowrap">First seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="p in participants.data" :key="p.id">
+                    <tr class="border-b border-slate-800/50 hover:bg-slate-800/20 transition-colors">
+                      <td class="px-4 py-3 font-mono text-xs text-slate-500" x-text="p.id.slice(0, 14) + '…'"></td>
+                      <td class="px-4 py-3">
+                        <div class="flex flex-wrap gap-1">
+                          <template x-for="a in p.aliases.filter(a => a.kind === 'phone')" :key="a.value">
+                            <span class="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-md text-xs text-slate-300 font-mono" x-text="a.value.split('@')[0]"></span>
+                          </template>
+                          <span x-show="p.aliases.filter(a => a.kind === 'phone').length === 0" class="text-slate-700 text-xs">—</span>
+                        </div>
+                      </td>
+                      <td class="px-4 py-3 text-xs text-slate-600 tabular-nums" x-text="p.aliases.filter(a => a.kind === 'lid').length || '—'"></td>
+                      <td class="px-4 py-3 text-xs text-slate-600 whitespace-nowrap font-mono" x-text="formatShortTime(p.createdAt)"></td>
+                    </tr>
+                  </template>
+                  <tr x-show="participants.data.length === 0">
+                    <td colspan="4" class="px-4 py-12 text-center text-slate-600 text-sm">No participants yet</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="px-4 py-2.5 border-t border-slate-800 text-xs text-slate-600" x-text="`${participants.data.length} participants total`"></div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ── ANALYTICS ── -->
+      <div x-show="page === 'analytics'" class="p-6 max-w-5xl mx-auto">
+        <div class="mb-5">
+          <h2 class="text-xl font-semibold text-slate-100">Analytics</h2>
+          <p class="text-slate-500 text-sm mt-0.5">Activity over the last 30 days</p>
+        </div>
+
+        <div x-show="analytics.loading" class="flex justify-center py-16">
+          <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+
+        <div x-show="analytics.data && !analytics.loading" class="space-y-5">
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <p class="text-sm font-medium text-slate-300 mb-4">Incoming messages per day</p>
+            <div style="height: 180px; position: relative;">
+              <canvas id="chart-messages"></canvas>
+            </div>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <p class="text-sm font-medium text-slate-300 mb-4">Memory extraction runs per day</p>
+            <div style="height: 180px; position: relative;">
+              <canvas id="chart-extractions"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SYSTEM PROMPT ── -->
+      <div x-show="page === 'prompt'" class="p-6 max-w-3xl mx-auto">
+        <div class="mb-5 flex items-center justify-between gap-4">
+          <div>
+            <h2 class="text-xl font-semibold text-slate-100">System Prompt</h2>
+            <p class="text-slate-500 text-sm mt-0.5">FlunkieBot's hand-authored personality</p>
+          </div>
+          <div class="flex items-center gap-3 shrink-0">
+            <span x-show="prompt.text !== prompt.original" class="text-xs text-amber-400 font-medium">Unsaved changes</span>
+            <button
+              @click="savePrompt()"
+              :disabled="prompt.saving || prompt.text === prompt.original"
+              class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-[#0B0B0E] font-bold rounded-xl text-sm transition-colors"
+              x-text="prompt.saving ? 'Saving…' : 'Save'"
+            ></button>
+          </div>
+        </div>
+
+        <div x-show="prompt.loading" class="flex justify-center py-16">
+          <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+
+        <div x-show="!prompt.loading" class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900/50">
+            <span class="text-xs text-slate-500 font-mono">system-prompt.txt</span>
+            <span class="text-xs text-slate-600" x-text="`${prompt.text.split('\n').length} lines`"></span>
+          </div>
+          <textarea
+            x-model="prompt.text"
+            class="w-full bg-transparent text-slate-200 text-sm font-mono p-4 resize-none focus:outline-none leading-relaxed"
+            style="min-height: 560px;"
+            placeholder="Loading…"
+            spellcheck="false"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- ── LOGS ── -->
+      <div x-show="page === 'logs'" class="flex flex-col h-full">
+
+        <!-- Toolbar -->
+        <div class="shrink-0 border-b border-slate-800 px-5 py-2.5 flex items-center gap-3">
+          <div class="flex items-center gap-2 flex-1 min-w-0">
+            <span class="relative flex h-2 w-2 shrink-0">
+              <span x-show="logs.connected" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2"
+                    :class="logs.connected ? 'bg-emerald-500' : 'bg-slate-600'"></span>
+            </span>
+            <span class="text-sm font-medium text-slate-200">Live Logs</span>
+            <span class="text-xs text-slate-600" x-text="logs.connected ? 'streaming' : 'disconnected'"></span>
+          </div>
+
+          <!-- Level filter -->
+          <select
+            x-model="logs.level"
+            class="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="">All levels</option>
+            <option value="debug">Debug+</option>
+            <option value="info">Info+</option>
+            <option value="warn">Warn+</option>
+            <option value="error">Error+</option>
+          </select>
+
+          <!-- Auto-scroll toggle -->
+          <button
+            @click="logs.autoScroll = !logs.autoScroll"
+            class="px-2.5 py-1 text-xs rounded-lg border transition-colors"
+            :class="logs.autoScroll
+              ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
+              : 'border-slate-700 text-slate-500 hover:text-slate-300'"
+          >Auto-scroll</button>
+
+          <!-- Clear -->
+          <button
+            @click="logs.entries = []"
+            class="px-2.5 py-1 text-xs rounded-lg border border-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
+          >Clear</button>
+
+          <span class="text-xs text-slate-700 tabular-nums shrink-0" x-text="`${filteredLogs().length} lines`"></span>
+        </div>
+
+        <!-- Log output -->
+        <div
+          id="log-area"
+          class="flex-1 overflow-y-auto font-mono text-xs"
+        >
+          <div class="p-3 space-y-px">
+            <template x-for="(entry, idx) in filteredLogs()" :key="idx">
+              <div
+                class="flex gap-2.5 items-baseline px-2 py-0.5 rounded hover:bg-white/[0.03] group"
+                :class="entry.level === 'fatal' ? 'bg-red-950/30' : (entry.level === 'error' ? 'bg-red-950/20' : '')"
+              >
+                <span class="text-slate-700 shrink-0 tabular-nums select-none" x-text="formatTime(entry.time)"></span>
+                <span
+                  class="shrink-0 w-8 text-center text-xs font-bold tracking-wide uppercase"
+                  :class="{
+                    'text-slate-600': entry.level === 'trace',
+                    'text-slate-500': entry.level === 'debug',
+                    'text-sky-400':   entry.level === 'info',
+                    'text-yellow-400': entry.level === 'warn',
+                    'text-red-400':   entry.level === 'error',
+                    'text-red-300':   entry.level === 'fatal',
+                  }"
+                  x-text="entry.level.slice(0,4)"
+                ></span>
+                <span class="text-slate-300 break-all leading-relaxed" x-text="entry.msg"></span>
+                <span
+                  x-show="entry.data && Object.keys(entry.data).length"
+                  class="text-slate-600 break-all leading-relaxed ml-1"
+                  x-text="formatLogData(entry.data)"
+                ></span>
+              </div>
+            </template>
+            <div x-show="filteredLogs().length === 0" class="text-slate-700 text-center py-12">
+              <p x-text="logs.connected ? 'Waiting for log entries…' : 'Connecting…'"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ── Toast ── -->
+  <div
+    x-show="toast"
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0 translate-y-2 scale-95"
+    x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0 translate-y-1"
+    class="fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl shadow-2xl text-sm font-medium flex items-center gap-2"
+    :class="toast?.type === 'error' ? 'bg-red-700 text-white' : 'bg-emerald-700 text-white'"
+  >
+    <span x-text="toast?.type === 'error' ? '✕' : '✓'" class="font-bold"></span>
+    <span x-text="toast?.message"></span>
+  </div>
+
+  <script>
+  function app() {
+    return {
+      page: 'loading',
+      authHeader: null,
+      authError: '',
+      password: '',
+      toast: null,
+
+      navItems: [
+        { id: 'overview',     label: 'Overview',       icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>' },
+        { id: 'messages',     label: 'Messages',       icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' },
+        { id: 'memories',     label: 'Memories',       icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a9 9 0 0 1 9 9c0 4-2.35 6.86-5.57 8.23L12 22l-3.43-2.77C5.35 17.86 3 15 3 11a9 9 0 0 1 9-9z"/><path d="M12 7v5l3 3"/></svg>' },
+        { id: 'participants', label: 'Participants',   icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+        { id: 'analytics',   label: 'Analytics',      icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>' },
+        { id: 'prompt',      label: 'System Prompt',  icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' },
+        { id: 'logs',        label: 'Live Logs',      icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>' },
+      ],
+
+      overview:     { loading: false, data: null },
+      messages:     { convLoading: false, loading: false, conversations: [], selectedConv: null, items: [], total: 0, page: 0, pageSize: 80, hasMore: false, draftText: '', gifQuery: '', injecting: false },
+      memories:     { loading: false, tab: 'claims', claims: null, episodes: null, patterns: null },
+      participants: { loading: false, data: null },
+      analytics:    { loading: false, data: null, charts: {} },
+      prompt:       { loading: false, saving: false, text: '', original: '' },
+      logs:         { connected: false, entries: [], level: '', autoScroll: true, controller: null },
+
+      async api(path, opts = {}) {
+        const headers = { 'Content-Type': 'application/json', ...(opts.headers ?? {}) };
+        if (this.authHeader) headers.Authorization = this.authHeader;
+        const res = await fetch('/api' + path, { ...opts, headers });
+        if (res.status === 401) {
+          this.authHeader = null;
+          this.page = 'login';
+          throw new Error('Unauthorized');
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? `HTTP ${res.status}`);
+        }
+        if (res.status === 204) return null;
+        return res.json();
+      },
+
+      async login() {
+        this.authError = '';
+        this.authHeader = 'Basic ' + btoa('admin:' + this.password);
+        try {
+          await this.api('/stats');
+          await this.navigate('overview');
+        } catch (err) {
+          if (err.message === 'Unauthorized') this.authError = 'Incorrect password';
+          else this.authError = err.message;
+        }
+      },
+
+      async navigate(p) {
+        if (p !== 'logs' && this.logs.controller) {
+          this.logs.controller.abort();
+          this.logs.controller = null;
+          this.logs.connected = false;
+        }
+        this.page = p;
+        if      (p === 'overview')     await this.loadOverview();
+        else if (p === 'messages')     await this.loadMessages();
+        else if (p === 'memories')     await this.loadMemories();
+        else if (p === 'participants') await this.loadParticipants();
+        else if (p === 'analytics')    await this.loadAnalytics();
+        else if (p === 'prompt')       await this.loadPrompt();
+        else if (p === 'logs')         await this.loadLogs();
+      },
+
+      showToast(message, type = 'success') {
+        this.toast = { message, type };
+        setTimeout(() => { this.toast = null; }, 3000);
+      },
+
+      async loadOverview() {
+        this.overview.loading = true;
+        try { this.overview.data = await this.api('/stats'); }
+        catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.overview.loading = false; }
+      },
+
+      async loadMessages() {
+        this.messages.convLoading = true;
+        try {
+          this.messages.conversations = await this.api('/conversations');
+        } catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.messages.convLoading = false; }
+      },
+
+      async selectConversation(conv) {
+        this.messages.selectedConv = conv;
+        this.messages.items = [];
+        this.messages.total = 0;
+        this.messages.page = 0;
+        this.messages.hasMore = false;
+        await this.fetchMessages(true);
+      },
+
+      async fetchMessages(scrollToBottom = false) {
+        this.messages.loading = true;
+        try {
+          const params = new URLSearchParams({
+            limit: this.messages.pageSize,
+            offset: this.messages.page * this.messages.pageSize,
+            conversationId: this.messages.selectedConv.id,
+          });
+          const data = await this.api('/messages?' + params);
+          // API returns newest-first; reverse for chronological display
+          const chunk = [...data.items].reverse();
+          this.messages.items = this.messages.page === 0 ? chunk : [...chunk, ...this.messages.items];
+          this.messages.total = data.total;
+          this.messages.hasMore = (this.messages.page + 1) * this.messages.pageSize < data.total;
+          if (scrollToBottom) {
+            setTimeout(() => {
+              const el = document.getElementById('chat-area');
+              if (el) el.scrollTop = el.scrollHeight;
+            }, 30);
+          }
+        } catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.messages.loading = false; }
+      },
+
+      async loadMoreMessages() {
+        this.messages.page++;
+        await this.fetchMessages(false);
+      },
+
+      async sendDirect() {
+        const text = this.messages.draftText.trim();
+        if (!text || !this.messages.selectedConv || this.messages.injecting) return;
+        this.messages.injecting = true;
+        try {
+          await this.api(`/conversations/${this.messages.selectedConv.id}/send`, {
+            method: 'POST',
+            body: JSON.stringify({ text }),
+          });
+          this.messages.draftText = '';
+          this.showToast('Sent');
+          setTimeout(() => this.fetchMessages(true), 800);
+        } catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.messages.injecting = false; }
+      },
+
+      async triggerAI(type) {
+        if (!this.messages.selectedConv || this.messages.injecting) return;
+        this.messages.injecting = true;
+        try {
+          await this.api(`/conversations/${this.messages.selectedConv.id}/inject`, {
+            method: 'POST',
+            body: JSON.stringify({ type, query: this.messages.gifQuery || undefined }),
+          });
+          this.messages.gifQuery = '';
+          const label = type === 'gif' ? 'GIF sent' : type === 'anthem' ? 'Anthem sent' : 'Bot will reply';
+          this.showToast(label);
+          setTimeout(() => this.fetchMessages(true), 1500);
+        } catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.messages.injecting = false; }
+      },
+
+      async loadMemories() {
+        this.memories.loading = true;
+        try {
+          const tab = this.memories.tab;
+          if      (tab === 'claims'   && !this.memories.claims)   this.memories.claims   = await this.api('/memories/claims');
+          else if (tab === 'episodes' && !this.memories.episodes) this.memories.episodes = await this.api('/memories/episodes');
+          else if (tab === 'patterns' && !this.memories.patterns) this.memories.patterns = await this.api('/memories/patterns');
+        } catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.memories.loading = false; }
+      },
+
+      async switchMemoryTab(tab) {
+        this.memories.tab = tab;
+        await this.loadMemories();
+      },
+
+      async deleteMemory(type, id) {
+        try {
+          await this.api(`/memories/${type}/${id}`, { method: 'DELETE' });
+          if      (type === 'claims')   this.memories.claims   = this.memories.claims.filter(c => c.id !== id);
+          else if (type === 'episodes') this.memories.episodes = this.memories.episodes.filter(e => e.id !== id);
+          else if (type === 'patterns') this.memories.patterns = this.memories.patterns.filter(p => p.id !== id);
+          this.showToast('Memory deleted');
+        } catch (err) { this.showToast(err.message, 'error'); }
+      },
+
+      async resetAllMemory() {
+        try {
+          await this.api('/memories', { method: 'DELETE' });
+          this.memories.claims = [];
+          this.memories.episodes = [];
+          this.memories.patterns = [];
+          this.overview.data = null;
+          this.showToast('All memory erased');
+        } catch (err) { this.showToast(err.message, 'error'); }
+      },
+
+      async loadParticipants() {
+        this.participants.loading = true;
+        try { this.participants.data = await this.api('/participants'); }
+        catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.participants.loading = false; }
+      },
+
+      async loadAnalytics() {
+        this.analytics.loading = true;
+        try {
+          this.analytics.data = await this.api('/analytics');
+          setTimeout(() => this.renderCharts(), 60);
+        } catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.analytics.loading = false; }
+      },
+
+      renderCharts() {
+        const data = this.analytics.data;
+        if (!data) return;
+
+        const grid = 'rgba(245,184,0,0.12)';
+        const tick = 'rgba(255,241,194,0.42)';
+        const base = {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: { legend: { labels: { color: 'rgba(255,241,194,0.6)', boxWidth: 10, padding: 16, font: { size: 11 } } } },
+          scales: {
+            x: { grid: { color: grid }, ticks: { color: tick, font: { size: 10 } }, border: { color: grid } },
+            y: { grid: { color: grid }, ticks: { color: tick, font: { size: 10 } }, border: { color: grid }, beginAtZero: true },
+          },
+        };
+
+        const msgEl = document.getElementById('chart-messages');
+        if (msgEl) {
+          if (this.analytics.charts.messages) {
+            const c = this.analytics.charts.messages;
+            c.data.labels = data.messagesByDay.map(r => r.day);
+            c.data.datasets[0].data = data.messagesByDay.map(r => r.total);
+            c.update('none');
+          } else {
+            this.analytics.charts.messages = new Chart(msgEl, {
+              type: 'bar',
+              data: {
+                labels: data.messagesByDay.map(r => r.day),
+                datasets: [{ label: 'Messages', data: data.messagesByDay.map(r => r.total), backgroundColor: 'rgba(245,184,0,0.75)', borderColor: '#F5B800', borderWidth: 1, borderRadius: 3 }],
+              },
+              options: base,
+            });
+          }
+        }
+
+        const extEl = document.getElementById('chart-extractions');
+        if (extEl) {
+          const days = [...new Set(data.extractionByDay.map(r => r.day))].sort();
+          const ok   = days.map(d => data.extractionByDay.find(r => r.day === d && r.state === 'succeeded')?.total ?? 0);
+          const fail = days.map(d => data.extractionByDay.find(r => r.day === d && r.state === 'failed')?.total ?? 0);
+          if (this.analytics.charts.extractions) {
+            const c = this.analytics.charts.extractions;
+            c.data.labels = days;
+            c.data.datasets[0].data = ok;
+            c.data.datasets[1].data = fail;
+            c.update('none');
+          } else {
+            this.analytics.charts.extractions = new Chart(extEl, {
+              type: 'bar',
+              data: {
+                labels: days,
+                datasets: [
+                  { label: 'Succeeded', data: ok,   backgroundColor: 'rgba(34,197,94,0.75)',  borderRadius: 3 },
+                  { label: 'Failed',    data: fail, backgroundColor: 'rgba(239,68,68,0.75)', borderRadius: 3 },
+                ],
+              },
+              options: { ...base, scales: { x: { ...base.scales.x, stacked: true }, y: { ...base.scales.y, stacked: true } } },
+            });
+          }
+        }
+      },
+
+      async loadPrompt() {
+        this.prompt.loading = true;
+        try {
+          const { text } = await this.api('/system-prompt');
+          this.prompt.text = text;
+          this.prompt.original = text;
+        } catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.prompt.loading = false; }
+      },
+
+      async savePrompt() {
+        this.prompt.saving = true;
+        try {
+          await this.api('/system-prompt', { method: 'POST', body: JSON.stringify({ text: this.prompt.text }) });
+          this.prompt.original = this.prompt.text;
+          this.showToast('System prompt saved');
+        } catch (err) { this.showToast(err.message, 'error'); }
+        finally { this.prompt.saving = false; }
+      },
+
+      async loadLogs() {
+        if (this.logs.controller) this.logs.controller.abort();
+        this.logs.controller = new AbortController();
+        this.connectLogStream(this.logs.controller.signal);
+      },
+
+      async connectLogStream(signal) {
+        this.logs.connected = false;
+        try {
+          const headers = { Accept: 'text/event-stream' };
+          if (this.authHeader) headers.Authorization = this.authHeader;
+          const res = await fetch('/api/logs/stream', { headers, signal });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          this.logs.connected = true;
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop();
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const entry = JSON.parse(line.slice(6));
+                this.logs.entries.push(entry);
+                if (this.logs.entries.length > 2000) this.logs.entries.shift();
+                if (this.logs.autoScroll) {
+                  const el = document.getElementById('log-area');
+                  if (el) el.scrollTop = el.scrollHeight;
+                }
+              } catch {}
+            }
+          }
+        } catch (err) {
+          this.logs.connected = false;
+          if (err.name === 'AbortError') return;
+          // Reconnect after 3 s if still on this page
+          if (this.page === 'logs') {
+            setTimeout(() => {
+              if (this.page === 'logs' && !signal.aborted)
+                this.connectLogStream(signal);
+            }, 3000);
+          }
+        }
+      },
+
+      filteredLogs() {
+        const order = { trace: 0, debug: 1, info: 2, warn: 3, error: 4, fatal: 5 };
+        const min = order[this.logs.level] ?? 0;
+        return this.logs.entries.filter(e => (order[e.level] ?? 2) >= min);
+      },
+
+      formatLogData(data) {
+        if (!data) return '';
+        const skip = new Set(['level', 'time', 'msg', 'pid', 'hostname']);
+        const parts = Object.entries(data)
+          .filter(([k]) => !skip.has(k))
+          .map(([k, v]) => {
+            const val = v instanceof Error ? v.message
+              : typeof v === 'object' ? JSON.stringify(v)
+              : String(v);
+            return `${k}=${val}`;
+          });
+        return parts.join(' ');
+      },
+
+      formatShortTime(ts) {
+        if (!ts) return '—';
+        return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      },
+
+      formatTime(ts) {
+        if (!ts) return '—';
+        return new Date(ts).toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' });
+      },
+
+      formatDay(ts) {
+        if (!ts) return '';
+        const d = new Date(ts);
+        const today = new Date();
+        const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+        if (d.toDateString() === today.toDateString()) return 'Today';
+        if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+        return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+      },
+
+      sameDay(ts1, ts2) {
+        if (!ts1 || !ts2) return false;
+        const a = new Date(ts1), b = new Date(ts2);
+        return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+      },
+
+      formatAddress(addr) {
+        if (!addr) return '—';
+        const local = addr.split('@')[0];
+        return local.length > 20 ? local.slice(0, 20) + '…' : local;
+      },
+
+      truncate(str, n = 80) {
+        if (!str) return '';
+        return str.length > n ? str.slice(0, n) + '…' : str;
+      },
+
+      shortId(id) {
+        if (!id) return '—';
+        return id.slice(0, 8) + '…';
+      },
+
+      splitBubbles(text) {
+        if (!text) return [''];
+        const parts = text.split('|||').map(p => p.trim()).filter(Boolean);
+        return parts.length ? parts : [text];
+      },
+
+      startPolling() {
+        setInterval(() => {
+          if (!document.hidden) this.silentRefresh();
+        }, 1000);
+      },
+
+      async silentRefresh() {
+        const p = this.page;
+        try {
+          if (p === 'overview') {
+            this.overview.data = await this.api('/stats');
+          } else if (p === 'messages') {
+            this.messages.conversations = await this.api('/conversations');
+            if (this.messages.selectedConv && !this.messages.loading && this.messages.page === 0) {
+              const el = document.getElementById('chat-area');
+              const atBottom = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 80 : true;
+              const lastId = this.messages.items.at(-1)?.id;
+              const params = new URLSearchParams({ limit: this.messages.pageSize, offset: 0, conversationId: this.messages.selectedConv.id });
+              const data = await this.api('/messages?' + params);
+              this.messages.items = [...data.items].reverse();
+              this.messages.total = data.total;
+              this.messages.hasMore = this.messages.pageSize < data.total;
+              if (atBottom && this.messages.items.at(-1)?.id !== lastId) {
+                setTimeout(() => { const e = document.getElementById('chat-area'); if (e) e.scrollTop = e.scrollHeight; }, 30);
+              }
+            }
+          } else if (p === 'memories') {
+            const tab = this.memories.tab;
+            if      (tab === 'claims')   this.memories.claims   = await this.api('/memories/claims');
+            else if (tab === 'episodes') this.memories.episodes = await this.api('/memories/episodes');
+            else if (tab === 'patterns') this.memories.patterns = await this.api('/memories/patterns');
+          } else if (p === 'participants') {
+            this.participants.data = await this.api('/participants');
+          } else if (p === 'analytics') {
+            this.analytics.data = await this.api('/analytics');
+            this.renderCharts();
+          }
+        } catch { /* silent — auth expiry handled inside api() */ }
+      },
+
+      async init() {
+        try {
+          const data = await this.api('/stats');
+          this.overview.data = data;
+          this.page = 'overview';
+        } catch (err) {
+          if (err.message !== 'Unauthorized') this.page = 'overview';
+          // Unauthorized: api() already set page = 'login'
+        }
+        this.startPolling();
+      },
+    };
+  }
+  </script>
+</body>
+</html>

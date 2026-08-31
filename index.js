@@ -24,8 +24,9 @@ import { createProviders } from './providers/index.js';
 import { createGifSearch } from './gif.js';
 import { loadPersonality } from './personality.js';
 import { createWhatsAppSender, getBotJids, normalizeEnvelope } from './whatsapp.js';
-import { logger, baileysLogger } from './logger.js';
+import { logger, baileysLogger, logEmitter } from './logger.js';
 import { acquireLock, releaseLock } from './lock.js';
+import { createDashboard } from './dashboard/server.js';
 
 const MAX_RECONNECT_DELAY_MS = 60_000;
 let reconnectAttempts = 0;
@@ -76,6 +77,35 @@ async function main() {
   // Pending extraction runs are resumed oldest first before new messages are accepted.
   await memory.start();
 
+  createDashboard({
+    memory,
+    systemPromptPath: new URL('./system-prompt.txt', import.meta.url).pathname,
+    port: Number(env.DASHBOARD_PORT) || 4444,
+    password: env.DASHBOARD_PASSWORD || null,
+    logEmitter,
+    logger,
+    sendDirect: async ({ convId, text }) => {
+      const conv = memory.dashboard.conversations().find(c => c.id === convId);
+      if (!conv) throw new Error(`Conversation ${convId} not found`);
+      const sent = await sender.sendText(conv.address, text);
+      memory.dashboard.storeOutgoing(convId, sent.text ?? text, sent.sentAt);
+    },
+    triggerAI: async ({ convId, type, query }) => {
+      const conv = memory.dashboard.conversations().find(c => c.id === convId);
+      if (!conv) throw new Error(`Conversation ${convId} not found`);
+      if (type === 'anthem') { await sender.sendAudio(conv.address); return; }
+      if (type === 'gif') { await sender.sendText(conv.address, `[GIF: ${query || 'grappig'}]`); return; }
+      // Normal: inject an addressed message → full AI pipeline → real WhatsApp reply
+      await chat.handleMessage({
+        conversationAddress: conv.address, conversationKind: conv.kind, conversationLabel: conv.label,
+        whatsappMessageId: `dashboard-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        direction: 'incoming', addressed: true, text: '.',
+        senderAlias: 'dashboard@s.whatsapp.net', pairedAlias: null, senderLabel: 'Dashboard',
+        observedAt: Date.now(),
+      });
+    },
+  });
+
   // Without a GIPHY key the bot is never told it can send GIFs, so it never
   // emits a directive that would go nowhere.
   const gifSearch = createGifSearch(env.GIPHY_API_KEY);
@@ -101,12 +131,8 @@ async function main() {
   // the whole process. A reconnect only swaps the socket the sender writes to,
   // so work still in flight can never race a replayed message on a fresh queue.
   let socket = null;
-  const chat = createChat({
-    memory,
-    replyGeneration,
-    sender: createWhatsAppSender(() => socket, undefined, { gifSearch, logger }),
-    logger,
-  });
+  const sender = createWhatsAppSender(() => socket, undefined, { gifSearch, anthemPath: env.ANTHEM_PATH, logger });
+  const chat = createChat({ memory, replyGeneration, sender, logger });
 
   async function startBot() {
     logger.info('Starting bot...');

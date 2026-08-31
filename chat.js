@@ -8,6 +8,8 @@
 export const FAILURE_NOTIFICATION_TEXT =
   'Kankerzooi, mijn orakel ligt plat. Probeer het straks nog eens.';
 
+import { containsAnthemKeyword } from './whatsapp.js';
+
 export function createChat({ memory, replyGeneration, sender, logger, clock = () => Date.now() }) {
   // One FIFO promise queue per normalized conversation address: messages in one
   // conversation can never race or reorder, while different conversations may
@@ -154,6 +156,16 @@ export function createChat({ memory, replyGeneration, sender, logger, clock = ()
     // Every supported incoming message is observed before reply routing,
     // including ambient group messages.
     const observed = await observe(message);
+
+    if (containsAnthemKeyword(message.text)) {
+      try {
+        await sender.sendAudio(message.conversationAddress, { quoted: message.quoted });
+        logger?.info?.({ conversationAddress: message.conversationAddress }, 'Anthem triggered');
+      } catch (err) {
+        logger?.warn?.({ err }, 'Failed to send anthem');
+      }
+      if (!message.addressed) return null;
+    }
 
     if (!message.addressed) return null;
 

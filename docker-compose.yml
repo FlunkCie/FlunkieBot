@@ -8,10 +8,14 @@ services:
     volumes:
       # WhatsApp session credentials and the single-instance lock.
       - ./auth_info:/app/auth_info
-      # Hand-authored personality, read-only: FlunkieBot can never rewrite it.
-      - ./system-prompt.txt:/app/system-prompt.txt:ro
+      # Personality file — writable so the dashboard can save edits.
+      - ./system-prompt.txt:/app/system-prompt.txt
       # Persistent memory. The SQLite database lives on the host so durable
       # memories survive container rebuilds and restarts.
       - ./data:/app/data
+      # Sacred hymn. Set ANTHEM_PATH in .env to override the in-container path.
+      - ./baila.mp3:/app/baila.mp3:ro
+    ports:
+      - "${DASHBOARD_PORT:-4444}:${DASHBOARD_PORT:-4444}"
     tty: true
     stdin_open: true

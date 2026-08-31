@@ -341,6 +341,94 @@ export function createMemory({
       if (message) await runExtraction(store.findRunById(run.id));
     },
 
+    dashboard: {
+      stats() {
+        const runCounts = store.extractionRunCounts().reduce((acc, r) => { acc[r.state] = r.total; return acc; }, {});
+        const outcomeCounts = store.turnOutcomeCounts().reduce((acc, r) => { acc[r.kind] = r.total; return acc; }, {});
+        const totalRuns = (runCounts.succeeded ?? 0) + (runCounts.failed ?? 0);
+        return {
+          messages: store.countMessages(),
+          participants: store.countParticipants(),
+          claims: store.countClaims(),
+          episodes: store.countEpisodes(),
+          patterns: store.countPatterns(),
+          evidence: store.countEvidence(),
+          extractionRuns: runCounts,
+          turnOutcomes: outcomeCounts,
+          extractionSuccessRate: totalRuns > 0
+            ? Math.round((runCounts.succeeded ?? 0) / totalRuns * 100)
+            : null,
+        };
+      },
+      conversations() { return store.listAllConversations(); },
+      messages(limit, offset, conversationId) {
+        return {
+          items: store.listMessagesPage(limit, offset, conversationId),
+          total: store.countMessagesPage(conversationId),
+        };
+      },
+      participants() {
+        return store.listAllParticipants().map((p) => ({
+          ...p,
+          aliases: store.aliasesOfParticipant(p.id),
+        }));
+      },
+      claims() {
+        return store.listClaims().map((c) => ({
+          ...c,
+          evidence: store.firstEvidence('participant_claim', c.id),
+        }));
+      },
+      episodes() {
+        const eps = store.listEpisodes();
+        const allLinks = store.listEpisodeParticipants();
+        const linksByEpisode = allLinks.reduce((acc, l) => {
+          (acc[l.episodeId] ??= []).push(l.participantId);
+          return acc;
+        }, {});
+        return eps.map((e) => ({
+          ...e,
+          participantIds: linksByEpisode[e.id] ?? [],
+          evidence: store.firstEvidence('episode', e.id),
+        }));
+      },
+      patterns() {
+        return store.listInteractionPatterns().map((p) => ({
+          ...p,
+          evidence: store.firstEvidence('interaction_pattern', p.id),
+        }));
+      },
+      storeOutgoing(convId, text, sentAt) {
+        store.insertMessage({
+          conversationId: convId,
+          participantId: null,
+          whatsappMessageId: `dashboard-out-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          direction: 'outgoing',
+          observedAt: sentAt ?? clock(),
+          addressed: false,
+          text,
+          authorLabel: BOT_LABEL,
+        });
+      },
+      deleteClaim(id) { store.deleteClaim(id); },
+      deleteEpisode(id) { store.deleteEpisode(id); },
+      deletePattern(id) { store.deletePattern(id); },
+      resetAllMemory() { store.resetAllMemory(); },
+      extractionRuns(limit, offset) {
+        return {
+          items: store.listExtractionRunsPage(limit, offset),
+          total: store.countExtractionRuns(),
+        };
+      },
+      analytics(days = 30) {
+        const since = Date.now() - days * 24 * 60 * 60 * 1000;
+        return {
+          messagesByDay: store.messagesByDay(since),
+          extractionByDay: store.extractionByDay(since),
+        };
+      },
+    },
+
     // Test-visible read models. They return domain records, never SQL or
     // physical storage names, so the storage schema stays private.
     inspect: {
